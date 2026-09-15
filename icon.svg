@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradient: Deep Islamic Forest Green to Royal Green -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#006304" />
+      <stop offset="60%" stop-color="#004d03" />
+      <stop offset="100%" stop-color="#003602" />
+    </linearGradient>
+
+    <!-- Gold Foil Gradient -->
+    <linearGradient id="goldGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#C59B27" />
+      <stop offset="35%" stop-color="#F9BF3B" />
+      <stop offset="65%" stop-color="#FFE082" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+
+    <!-- Emerald Leaf Gradient -->
+    <linearGradient id="leafGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2E7D32" />
+      <stop offset="50%" stop-color="#4CAF50" />
+      <stop offset="100%" stop-color="#81C784" />
+    </linearGradient>
+
+    <!-- Soft Glow Filter -->
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background Base (Apple Touch Icon iOS will mask corners, but solid square is required) -->
+  <rect width="512" height="512" fill="url(#bgGrad)" />
+
+  <!-- Subtle Islamic Geometric / Floral Halo -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-dasharray="8 6" opacity="0.4" />
+  <circle cx="256" cy="256" r="195" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.15" />
+
+  <!-- Central Emblem Container -->
+  <g filter="url(#dropShadow)">
+    <!-- Elegant Holy Quran / Book Stand (Rahlah - رحلة وِرد) -->
+    <!-- Open Book Pages Left & Right -->
+    <path d="M 256 350 C 235 340 180 325 120 338 C 105 341 96 332 96 318 L 96 200 C 96 190 105 182 118 180 C 175 168 230 182 256 195 C 282 182 337 168 394 180 C 407 182 416 190 416 200 L 416 318 C 416 332 407 341 392 338 C 332 325 277 340 256 350 Z" 
+          fill="#FFFFFF" />
+
+    <!-- Book Spine & Inner Accent Lines -->
+    <path d="M 256 195 L 256 350" stroke="#C59B27" stroke-width="4" stroke-linecap="round" />
+    
+    <!-- Left Quran Page Lines (Simulating Quranic Script) -->
+    <path d="M 130 220 C 165 212 210 218 235 228" fill="none" stroke="#E0E0E0" stroke-width="4" stroke-linecap="round" />
+    <path d="M 130 250 C 165 242 210 248 235 258" fill="none" stroke="#E0E0E0" stroke-width="4" stroke-linecap="round" />
+    <path d="M 130 280 C 165 272 210 278 235 288" fill="none" stroke="#E0E0E0" stroke-width="4" stroke-linecap="round" />
+
+    <!-- Right Quran Page Lines -->
+    <path d="M 382 220 C 347 212 302 218 277 228" fill="none" stroke="#E0E0E0" stroke-width="4" stroke-linecap="round" />
+    <path d="M 382 250 C 347 242 302 248 277 258" fill="none" stroke="#E0E0E0" stroke-width="4" stroke-linecap="round" />
+    <path d="M 382 280 C 347 272 302 278 277 288" fill="none" stroke="#E0E0E0" stroke-width="4" stroke-linecap="round" />
+
+    <!-- Wooden Rahlah Base / Wooden Quran Stand Crossing -->
+    <path d="M 170 340 L 130 400 C 126 406 130 414 138 414 L 175 414 L 215 352 Z" fill="url(#goldGrad)" opacity="0.95" />
+    <path d="M 342 340 L 382 400 C 386 406 382 414 374 414 L 337 414 L 297 352 Z" fill="url(#goldGrad)" opacity="0.95" />
+    <path d="M 235 348 L 256 380 L 277 348 Z" fill="#9E7814" />
+
+    <!-- Sprouting Seedling 🌱 (Symbol of ورد / Growth in Quran) Rising from Center -->
+    <g filter="url(#softGlow)">
+      <!-- Main Stem -->
+      <path d="M 256 220 Q 256 165 256 140" fill="none" stroke="url(#leafGrad)" stroke-width="8" stroke-linecap="round" />
+      
+      <!-- Right Sprout Leaf -->
+      <path d="M 256 160 C 290 140 315 110 300 85 C 275 85 260 115 256 145 Z" fill="url(#leafGrad)" />
+      
+      <!-- Left Sprout Leaf -->
+      <path d="M 256 175 C 220 160 195 130 210 105 C 235 105 250 135 256 160 Z" fill="url(#leafGrad)" />
+    </g>
+
+    <!-- Golden Guiding Star / Noor on top of Sprout -->
+    <path d="M 256 60 L 261 75 L 276 80 L 261 85 L 256 100 L 251 85 L 236 80 L 251 75 Z" fill="url(#goldGrad)" />
+  </g>
+
+  <!-- Elegant Bottom Badge: "وِرد" in graceful Kufic-inspired lettering or Arabic Typography -->
+  <text x="256" y="465" 
+        font-family="'Cairo', 'Noto Kufi Arabic', 'Arial', sans-serif" 
+        font-size="44" 
+        font-weight="900" 
+        letter-spacing="2"
+        fill="url(#goldGrad)" 
+        text-anchor="middle">
+    رِحْلَة وِردْ
+  </text>
+</svg>
