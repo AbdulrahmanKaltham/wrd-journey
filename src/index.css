@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-ward-primary: #006304;
+    --color-ward-yellow: #F9BF3B;
+    --color-ward-gold: #C79545;
+    --color-ward-bg: #F8F9F5;
+  }
+
+  body {
+    font-family: 'Noto Kufi Arabic', 'Cairo', system-ui, -apple-system, sans-serif;
+    background-color: #F4F6EE;
+    color: #1e293b;
+    overflow-x: hidden;
+  }
+
+  .font-heading {
+    font-family: 'Noto Kufi Arabic', 'Cairo', sans-serif;
+  }
+
+  .font-num {
+    font-family: 'Montserrat', sans-serif;
+  }
+}
+
+/* Custom animations & scrollbar */
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+.animate-float {
+  animation: floatSlow 3.5s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+/* Custom scrollbar for mobile journey map */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 99, 4, 0.2);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 99, 4, 0.4);
+}

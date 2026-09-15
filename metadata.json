@@ -1,0 +1,6 @@
+{
+  "name": "رحلة ورد - تحفيظ القرآن",
+  "description": "تطبيق تحفيظ قرآن تفاعلي محفز لنادي ورد بتح تجربة رحلة تعليمية مغامرة لجزء عم والعوالم القرآنية.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

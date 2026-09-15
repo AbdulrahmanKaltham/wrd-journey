@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profiles & Progress",
+      "description": "User account profiles, Quran journey progress, XP, streak, role, circle, and unlocked rewards",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "teacher"] },
+        "gender": { "type": "string", "enum": ["male", "female"] },
+        "circleId": { "type": "string" },
+        "circleName": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "avatarStyle": { "type": "string" },
+        "outfitColor": { "type": "string" },
+        "bagStyle": { "type": "string" },
+        "accessoryStyle": { "type": "string" },
+        "companion": { "type": "string" },
+        "currentWorld": { "type": "string" },
+        "currentWeek": { "type": "number" },
+        "currentNodeId": { "type": "string" },
+        "xp": { "type": "number" },
+        "streak": { "type": "number" },
+        "longestStreak": { "type": "number" },
+        "lastActiveDate": { "type": "string" },
+        "completedDates": {
+          "type": "array"
+        },
+        "completedNodes": {
+          "type": "array"
+        },
+        "completedWeeks": {
+          "type": "array"
+        },
+        "unlockedBadges": {
+          "type": "array"
+        },
+        "unlockedDecorations": {
+          "type": "array"
+        },
+        "submissions": {
+          "type": "object",
+          "description": "Recitation submissions for teacher approval, recording links, and status"
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["displayName", "xp", "streak", "currentWeek"]
+    },
+    "circles": {
+      "title": "Quranic Circles",
+      "description": "Circles managed by teachers with students, join codes, and gender separation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "gender": { "type": "string", "enum": ["male", "female"] },
+        "studentIds": {
+          "type": "array"
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isActive": { "type": "boolean" },
+        "settings": { "type": "object" }
+      },
+      "required": ["id", "name", "code", "teacherId", "gender"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profiles and student progress tracking"
+    },
+    "/circles/{circleId}": {
+      "schema": "circles",
+      "description": "Quranic study circles and classrooms"
+    }
+  }
+}
