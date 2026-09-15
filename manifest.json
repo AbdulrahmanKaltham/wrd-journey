@@ -1,0 +1,32 @@
+{
+  "name": "رحلة وِرد",
+  "short_name": "رحلة وِرد",
+  "description": "تطبيق تحفيظ وتثبيت القرآن الكريم التفاعلي لنادي وِرد",
+  "id": "/wrd-journey/",
+  "start_url": "/wrd-journey/",
+  "scope": "/wrd-journey/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F8F9F5",
+  "theme_color": "#006304",
+  "icons": [
+    {
+      "src": "/wrd-journey/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/wrd-journey/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/wrd-journey/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
