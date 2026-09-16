@@ -3,29 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>إطلاق منصة رحلة وِرد - نادي وِرد القرآني</title>
+  <title>حفل إطلاق رحلة وِرد - نادي وِرد القرآني</title>
   
   <!-- Google Fonts: Noto Kufi Arabic, Cairo, Montserrat -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Montserrat:wght@700;800;900&family=Noto+Kufi+Arabic:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Montserrat:wght@600;700;800;900&family=Noto+Kufi+Arabic:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   
   <!-- Canvas Confetti CDN -->
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.0/dist/confetti.browser.min.js"></script>
 
   <style>
     /* =========================================================
-       SOLID COLOR PALETTE (STRICTLY NO GRADIENTS)
+       CSS VARIABLES & THEME MATCHING APP DESIGN
        ========================================================= */
     :root {
-      --bg-green: #006304;         /* Solid Islamic Green */
-      --card-white: #FFFFFF;       /* Solid Crisp White */
-      --gold-btn: #F9BF3B;         /* Solid Gold */
-      --gold-border: #E5A820;      /* Solid Gold Accent */
-      --text-dark: #0F172A;        /* Deep Charcoal */
-      --text-muted: #475569;       /* Slate Grey */
-      --badge-bg: #004D03;         /* Darker Solid Green */
-      --badge-text: #FDE047;       /* Soft Bright Gold */
+      --app-bg: #F4F6EE;
+      --card-bg: #FFFFFF;
+      --primary-green: #006304;
+      --primary-green-light: #EBF7EB;
+      --primary-green-border: rgba(0, 99, 4, 0.2);
+      --gold-primary: #F9BF3B;
+      --gold-light: #FFF8E7;
+      --gold-border: rgba(249, 191, 59, 0.45);
+      --gold-dark: #C79545;
+      --border-subtle: #E2E8F0;
+      --text-main: #0F172A;
+      --text-muted: #64748B;
       --font-family: 'Noto Kufi Arabic', 'Cairo', system-ui, -apple-system, sans-serif;
       --font-num: 'Montserrat', sans-serif;
     }
@@ -45,11 +49,10 @@
       padding: 0;
     }
 
-    /* Solid Green Background - Absolutely No Gradients, No SVG Pattern */
     body {
       font-family: var(--font-family);
-      background-color: var(--bg-green);
-      color: #FFFFFF;
+      background-color: var(--app-bg);
+      color: var(--text-main);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -59,7 +62,34 @@
       user-select: none;
     }
 
-    /* Stage Container (Full viewport 100vw / 100vh) */
+    /* Subtle Islamic Geometric Pattern Overlay (Same low opacity as the app) */
+    .islamic-pattern {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cg fill='%23006304'%3E%3Cpath d='M40 0L46 28L74 14L54 36L80 40L54 44L74 66L46 52L40 80L34 52L6 66L26 44L0 40L26 36L6 14L34 28Z' fill-opacity='0.5'/%3E%3Ccircle cx='40' cy='40' r='10' fill='none' stroke='%23006304' stroke-width='1.5' stroke-opacity='0.7'/%3E%3Crect x='28' y='28' width='24' height='24' fill='none' stroke='%23006304' stroke-width='1' stroke-opacity='0.4' transform='rotate(45 40 40)'/%3E%3C/g%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 80px 80px;
+      z-index: 1;
+    }
+
+    /* Soft ambient aura in the center matching app green/gold vibe */
+    .ambient-glow {
+      position: absolute;
+      width: 850px;
+      height: 850px;
+      background: radial-gradient(circle, rgba(0, 99, 4, 0.05) 0%, rgba(249, 191, 59, 0.04) 45%, transparent 70%);
+      border-radius: 50%;
+      filter: blur(50px);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* Fullscreen Viewport Stage Container */
     .stage-container {
       position: relative;
       z-index: 10;
@@ -69,116 +99,152 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 24px 32px;
+      padding: clamp(16px, 3vh, 36px) clamp(20px, 3vw, 48px);
     }
 
     /* =========================================================
-       VIEW 1: HERO SCREEN (Before Launch)
+       VIEW 1: LAUNCH HERO SCREEN
        ========================================================= */
     #heroView {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      transition: opacity 0.4s ease, transform 0.4s ease;
+      transition: opacity 0.5s ease, transform 0.5s ease;
       width: 100%;
-      max-width: 1000px;
+      max-width: 900px;
     }
 
     #heroView.hidden-fade {
       opacity: 0;
-      transform: scale(0.94);
+      transform: scale(0.92);
       pointer-events: none;
     }
 
-    /* Club Badge */
+    /* Main Card in View 1 */
+    .hero-card {
+      background: var(--card-bg);
+      border: 1.5px solid var(--primary-green-border);
+      border-radius: 36px;
+      padding: clamp(32px, 5vh, 48px) clamp(24px, 4vw, 56px);
+      box-shadow: 0 16px 40px rgba(0, 99, 4, 0.06), 0 4px 12px rgba(0, 0, 0, 0.03);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      position: relative;
+    }
+
     .club-badge {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px 24px;
+      gap: 8px;
+      padding: 6px 18px;
       border-radius: 9999px;
-      background-color: var(--badge-bg);
-      border: 2px solid var(--gold-btn);
-      margin-bottom: 24px;
+      background: var(--gold-light);
+      border: 1.5px solid var(--gold-primary);
+      margin-bottom: 20px;
+      box-shadow: 0 2px 6px rgba(249, 191, 59, 0.15);
     }
 
     .club-badge .star-icon {
-      font-size: 18px;
+      font-size: 16px;
     }
 
     .club-badge span {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 800;
-      color: var(--badge-text);
-      letter-spacing: 0.5px;
+      color: #925E03;
     }
 
-    /* Single-Line Main Title */
+    .logo-sprout {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      background: var(--primary-green-light);
+      border: 2px solid var(--primary-green);
+      color: var(--primary-green);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 12px rgba(0, 99, 4, 0.12);
+    }
+
     .main-title {
-      font-size: clamp(28px, 3.8vw, 48px);
+      font-size: clamp(34px, 4.2vw, 52px);
       font-weight: 900;
       line-height: 1.25;
-      color: #FFFFFF;
-      margin-bottom: 14px;
-      white-space: nowrap; /* Ensures strictly on one line */
-      display: inline-block;
+      color: var(--primary-green);
+      margin-bottom: 10px;
+      letter-spacing: -0.5px;
     }
 
-    /* Subtitle (Without 'المباركة') */
     .sub-title {
-      font-size: clamp(16px, 1.8vw, 22px);
+      font-size: clamp(16px, 1.8vw, 21px);
       font-weight: 600;
-      color: #E2E8F0;
-      max-width: 820px;
+      color: var(--text-muted);
+      max-width: 650px;
       line-height: 1.6;
-      margin-bottom: 44px;
+      margin-bottom: 36px;
     }
 
-    /* Solid Gold Circular Launch Button with Rocket Icon */
+    /* Circular Launch Button in App Style (Gold with White border and soft shadow) */
     .launch-btn {
       position: relative;
       cursor: pointer;
-      width: clamp(200px, 20vw, 240px);
-      height: clamp(200px, 20vw, 240px);
+      width: clamp(190px, 19vw, 230px);
+      height: clamp(190px, 19vw, 230px);
       border-radius: 50%;
       border: 6px solid #FFFFFF;
-      background-color: var(--gold-btn); /* Solid Gold - No Gradients */
-      color: #1E1B4B;
+      background: linear-gradient(135deg, #FDE68A 0%, var(--gold-primary) 50%, #EAB308 100%);
+      color: #3F2C00;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 12px;
-      font-size: clamp(22px, 2.2vw, 26px);
+      gap: 10px;
+      font-size: clamp(21px, 2.2vw, 26px);
       font-weight: 900;
       font-family: var(--font-family);
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-      transition: transform 0.25s ease, box-shadow 0.25s ease;
+      box-shadow: 0 14px 32px rgba(249, 191, 59, 0.4),
+                  0 4px 10px rgba(0, 0, 0, 0.08),
+                  inset 0 2px 6px rgba(255, 255, 255, 0.8);
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
       user-select: none;
       outline: none;
+      animation: buttonFloat 3s ease-in-out infinite;
+    }
+
+    @keyframes buttonFloat {
+      0%, 100% {
+        transform: translateY(0px) scale(1);
+        box-shadow: 0 14px 32px rgba(249, 191, 59, 0.4), 0 4px 10px rgba(0, 0, 0, 0.08);
+      }
+      50% {
+        transform: translateY(-6px) scale(1.03);
+        box-shadow: 0 20px 42px rgba(249, 191, 59, 0.55), 0 8px 16px rgba(0, 0, 0, 0.08);
+      }
     }
 
     .launch-btn:hover {
-      transform: scale(1.06);
-      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.45);
+      transform: scale(1.07);
+      box-shadow: 0 22px 48px rgba(249, 191, 59, 0.6), 0 8px 20px rgba(0, 0, 0, 0.1);
     }
 
     .launch-btn:active {
       transform: scale(0.96);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 6px 16px rgba(249, 191, 59, 0.35);
     }
 
-    /* Rocket Icon SVG */
     .launch-btn svg {
-      width: clamp(48px, 4.8vw, 60px);
-      height: clamp(48px, 4.8vw, 60px);
+      width: clamp(42px, 4.4vw, 54px);
+      height: clamp(42px, 4.4vw, 54px);
       fill: none;
-      stroke: #1E1B4B;
+      stroke: #3F2C00;
       stroke-width: 2.2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      transform: rotate(45deg); /* Pointing up and right */
+      filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.5));
     }
 
     .launch-btn span {
@@ -186,17 +252,17 @@
     }
 
     .launch-btn-hint {
-      margin-top: 24px;
-      font-size: 16px;
+      margin-top: 20px;
+      font-size: 15px;
       font-weight: 700;
-      color: var(--gold-btn);
+      color: var(--primary-green);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
     }
 
     /* =========================================================
-       VIEW 2: GIANT 5-SECOND COUNTDOWN
+       VIEW 2: DRAMATIC COUNTDOWN OVERLAY
        ========================================================= */
     #countdownView {
       display: none;
@@ -204,7 +270,7 @@
       align-items: center;
       justify-content: center;
       width: 100%;
-      height: 100%;
+      max-width: 800px;
       z-index: 20;
     }
 
@@ -212,43 +278,55 @@
       display: flex;
     }
 
-    .countdown-pill {
-      background-color: var(--badge-bg);
-      border: 2px solid var(--gold-btn);
-      color: var(--gold-btn);
-      font-size: clamp(16px, 1.8vw, 22px);
+    .countdown-card {
+      background: var(--card-bg);
+      border: 2px solid var(--primary-green-border);
+      border-radius: 36px;
+      padding: clamp(40px, 6vh, 64px) clamp(24px, 5vw, 64px);
+      box-shadow: 0 20px 50px rgba(0, 99, 4, 0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .countdown-tag {
+      background: var(--primary-green-light);
+      color: var(--primary-green);
+      font-size: 18px;
       font-weight: 800;
-      padding: 8px 28px;
+      padding: 6px 22px;
       border-radius: 9999px;
-      margin-bottom: 16px;
+      border: 1.5px solid rgba(0, 99, 4, 0.25);
+      margin-bottom: 24px;
       display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
 
     .countdown-number {
       font-family: var(--font-num), var(--font-family);
-      font-size: clamp(130px, 20vw, 240px);
+      font-size: clamp(100px, 14vw, 170px);
       font-weight: 900;
       line-height: 1;
-      color: var(--gold-btn);
-      text-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-      margin: 10px 0 16px 0;
+      color: var(--primary-green);
+      text-shadow: 0 8px 24px rgba(0, 99, 4, 0.15);
+      margin: 12px 0 20px 0;
       display: inline-block;
-      transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      transition: all 0.25s ease-out;
     }
 
     .countdown-number.pop-animation {
-      animation: countScalePop 0.85s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+      animation: countPop 0.85s cubic-bezier(0.18, 0.89, 0.32, 1.28);
     }
 
-    @keyframes countScalePop {
+    @keyframes countPop {
       0% {
-        transform: scale(0.35);
+        transform: scale(0.4);
         opacity: 0;
       }
       50% {
-        transform: scale(1.18);
+        transform: scale(1.15);
         opacity: 1;
       }
       100% {
@@ -258,22 +336,21 @@
     }
 
     .countdown-caption {
-      font-size: clamp(20px, 2.5vw, 30px);
+      font-size: clamp(20px, 2.4vw, 28px);
       font-weight: 800;
-      color: #FFFFFF;
-      letter-spacing: 0.5px;
+      color: #925E03;
     }
 
     /* =========================================================
-       VIEW 3: FINAL WHITE CELEBRATION CARD
+       VIEW 3: FINAL CARD / QR CELEBRATION
        ========================================================= */
     #cardView {
       display: none;
       opacity: 0;
-      transform: scale(0.94);
-      transition: opacity 0.5s ease, transform 0.5s ease;
+      transform: scale(0.92) translateY(24px);
+      transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
       width: 100%;
-      max-width: 960px;
+      max-width: 950px;
     }
 
     #cardView.show-card {
@@ -281,17 +358,16 @@
       flex-direction: column;
       align-items: center;
       opacity: 1;
-      transform: scale(1);
+      transform: scale(1) translateY(0);
     }
 
     .celebration-card {
-      background-color: var(--card-white);
-      border: 3px solid var(--gold-btn);
-      border-radius: 32px;
-      padding: clamp(24px, 3.5vh, 38px) clamp(24px, 3.5vw, 44px);
+      background: var(--card-bg);
+      border: 1.5px solid var(--primary-green-border);
+      border-radius: 36px;
+      padding: clamp(24px, 4vh, 40px) clamp(24px, 4vw, 48px);
       width: 100%;
-      color: var(--text-dark);
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 20px 50px rgba(0, 99, 4, 0.08), 0 4px 12px rgba(0, 0, 0, 0.03);
       position: relative;
     }
 
@@ -299,32 +375,32 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
 
     .card-banner .congrats-tag {
-      background-color: #E8F5E9;
-      color: var(--bg-green);
+      background: var(--primary-green-light);
+      color: var(--primary-green);
       font-size: 15px;
       font-weight: 800;
       padding: 5px 20px;
       border-radius: 9999px;
-      border: 2px solid #A5D6A7;
-      margin-bottom: 8px;
+      border: 1.5px solid rgba(0, 99, 4, 0.2);
+      margin-bottom: 10px;
       display: inline-flex;
       align-items: center;
       gap: 6px;
     }
 
     .card-title {
-      font-size: clamp(26px, 3vw, 36px);
+      font-size: clamp(26px, 3.2vw, 38px);
       font-weight: 900;
-      color: var(--bg-green);
+      color: var(--primary-green);
       margin-bottom: 4px;
     }
 
     .card-subtitle {
-      font-size: clamp(14px, 1.5vw, 17px);
+      font-size: clamp(14px, 1.6vw, 17px);
       font-weight: 600;
       color: var(--text-muted);
     }
@@ -335,55 +411,62 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      margin: 8px 0 24px 0;
+      margin: 8px 0 28px 0;
     }
 
     .qr-frame {
-      padding: 10px;
-      background-color: #FFFFFF;
-      border: 3px solid var(--bg-green);
-      border-radius: 20px;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+      padding: 12px;
+      background: #FFFFFF;
+      border: 2.5px solid var(--primary-green);
+      border-radius: 24px;
+      box-shadow: 0 8px 24px rgba(0, 99, 4, 0.08);
+      transition: transform 0.3s ease;
       display: inline-flex;
       align-items: center;
       justify-content: center;
     }
 
+    .qr-frame:hover {
+      transform: scale(1.03);
+    }
+
     .qr-image {
-      width: clamp(170px, 18vw, 230px);
-      height: clamp(170px, 18vw, 230px);
+      width: clamp(180px, 20vw, 250px);
+      height: clamp(180px, 20vw, 250px);
       display: block;
-      border-radius: 12px;
+      border-radius: 14px;
     }
 
     .qr-url-link {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      margin-top: 12px;
-      padding: 6px 20px;
-      background-color: #F1F8F1;
-      border: 2px solid #C8E6C9;
+      margin-top: 14px;
+      padding: 7px 20px;
+      background: var(--primary-green-light);
+      border: 1.5px solid rgba(0, 99, 4, 0.2);
       border-radius: 9999px;
-      color: var(--bg-green);
-      font-size: clamp(13px, 1.4vw, 16px);
+      color: var(--primary-green);
+      font-size: clamp(14px, 1.5vw, 17px);
       font-weight: 800;
       text-decoration: none;
       direction: ltr;
-      transition: background-color 0.2s ease, color 0.2s ease;
+      transition: all 0.2s ease;
     }
 
     .qr-url-link:hover {
-      background-color: var(--bg-green);
+      background: var(--primary-green);
       color: #FFFFFF;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px rgba(0, 99, 4, 0.2);
     }
 
-    /* 3 Steps Section */
+    /* Steps Section (3 Cards) */
     .steps-heading {
-      font-size: clamp(16px, 1.8vw, 20px);
+      font-size: clamp(17px, 1.8vw, 21px);
       font-weight: 800;
-      color: var(--text-dark);
-      margin-bottom: 14px;
+      color: var(--text-main);
+      margin-bottom: 16px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -394,65 +477,73 @@
     .steps-heading::after {
       content: '';
       height: 2px;
-      width: 28px;
-      background-color: var(--gold-btn);
+      width: 32px;
+      background: var(--gold-primary);
       border-radius: 2px;
     }
 
     .steps-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
+      gap: 16px;
       width: 100%;
     }
 
     @media (max-width: 768px) {
       .steps-grid {
         grid-template-columns: 1fr;
-        gap: 10px;
+        gap: 12px;
       }
     }
 
     .step-card {
-      background-color: #F8FAFC;
-      border: 2px solid #E2E8F0;
-      border-radius: 18px;
-      padding: 16px 14px;
+      background: #FFFFFF;
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 18px 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
+      transition: all 0.2s ease;
       position: relative;
+    }
+
+    .step-card:hover {
+      border-color: var(--primary-green);
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(0, 99, 4, 0.08);
     }
 
     .step-number {
       position: absolute;
-      top: -11px;
-      right: 14px;
-      background-color: var(--bg-green);
+      top: -12px;
+      right: 16px;
+      background: var(--primary-green);
       color: #FFFFFF;
       font-size: 13px;
       font-weight: 900;
-      padding: 1px 10px;
+      padding: 1px 11px;
       border-radius: 9999px;
       border: 2px solid #FFFFFF;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
     }
 
     .step-icon {
-      font-size: 32px;
-      margin-bottom: 6px;
+      font-size: 34px;
+      margin-bottom: 8px;
       line-height: 1;
     }
 
     .step-title {
       font-size: 15px;
       font-weight: 800;
-      color: var(--text-dark);
+      color: var(--text-main);
       margin-bottom: 4px;
     }
 
     .step-desc {
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 600;
       color: var(--text-muted);
       line-height: 1.45;
@@ -460,9 +551,9 @@
 
     /* Reset / Replay Launch Button */
     .replay-btn {
-      margin-top: 18px;
-      background-color: #FFFFFF;
-      border: 2px solid #CBD5E1;
+      margin-top: 22px;
+      background: transparent;
+      border: 1.5px solid var(--border-subtle);
       color: var(--text-muted);
       padding: 6px 18px;
       border-radius: 9999px;
@@ -477,23 +568,29 @@
     }
 
     .replay-btn:hover {
-      color: var(--bg-green);
-      border-color: var(--bg-green);
-      background-color: #F1F8F1;
+      color: var(--primary-green);
+      border-color: var(--primary-green);
+      background: var(--primary-green-light);
     }
 
-    /* Footer */
+    /* Footer Credits */
     .launch-footer {
       position: absolute;
       bottom: 12px;
       font-size: 13px;
       font-weight: 700;
-      color: rgba(255, 255, 255, 0.7);
+      color: #94A3B8;
       z-index: 10;
     }
   </style>
 </head>
 <body>
+
+  <!-- Very Subtle Islamic Geometric Overlay -->
+  <div class="islamic-pattern"></div>
+  
+  <!-- Soft Ambient Glow -->
+  <div class="ambient-glow"></div>
 
   <main class="stage-container">
 
@@ -501,63 +598,70 @@
          VIEW 1: LAUNCH SCREEN (Before Click)
          ======================================================= -->
     <section id="heroView">
-      
-      <!-- Club Badge -->
-      <div class="club-badge">
-        <span class="star-icon">🌱</span>
-        <span>نادي وِرد القرآني</span>
+      <div class="hero-card">
+        
+        <!-- Club Badge -->
+        <div class="club-badge">
+          <span class="star-icon">🌱</span>
+          <span>نادي وِرد القرآني</span>
+        </div>
+
+        <!-- Sprout Icon -->
+        <div class="logo-sprout">
+          🌱
+        </div>
+
+        <!-- Main Titles (Balanced for stage & distance) -->
+        <h1 class="main-title">
+          إطلاق منصة «رحلة وِرد»
+        </h1>
+        <p class="sub-title">
+          الرحلة التفاعلية لحفظ وتثبيت القرآن الكريم وتنافس العوالم القرآنية
+        </p>
+
+        <!-- Circular Launch Button: "إطلاق البرنامج" -->
+        <button id="launchBtn" class="launch-btn" type="button" aria-label="إطلاق البرنامج">
+          <!-- Holy Quran / Book Icon -->
+          <svg viewBox="0 0 24 24">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+            <path d="M12 6v6"></path>
+            <path d="M9 9h6"></path>
+          </svg>
+          <span>إطلاق البرنامج</span>
+        </button>
+
+        <p class="launch-btn-hint">
+          <span>✨</span>
+          <span>اضغط الزر لإطلاق المنصة الرسمية</span>
+        </p>
+
       </div>
-
-      <!-- Main Title: strictly single line, no line break, smaller size -->
-      <h1 class="main-title">
-        إطلاق منصة رحلة وِرد
-      </h1>
-
-      <!-- Subtitle: without 'المباركة' -->
-      <p class="sub-title">
-        الرحلة التفاعلية لحفظ وتثبيت القرآن الكريم، وتنافس العوالم القرآنية لطلاب الحلقات
-      </p>
-
-      <!-- Circular Launch Button with Rocket Icon -->
-      <button id="launchBtn" class="launch-btn" type="button" aria-label="إطلاق البرنامج">
-        <!-- Rocket Icon -->
-        <svg viewBox="0 0 24 24">
-          <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path>
-          <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6.05 11a22.35 22.35 0 0 1-3.95 2z"></path>
-          <path d="M9 21v-4"></path>
-          <path d="M3 15h4"></path>
-        </svg>
-        <span>إطلاق البرنامج</span>
-      </button>
-
-      <p class="launch-btn-hint">
-        <span>✨</span>
-        <span>اضغط الزر لإطلاق المنصة الرسمية</span>
-      </p>
-
     </section>
 
     <!-- =======================================================
-         VIEW 2: GIANT 5-SECOND COUNTDOWN SCREEN
+         VIEW 2: COUNTDOWN SCREEN (5 -> 4 -> 3 -> 2 -> 1)
          ======================================================= -->
     <section id="countdownView">
-      <div class="countdown-pill">
-        <span>🚀</span>
-        <span>لحظة الإطلاق المرتقبة</span>
+      <div class="countdown-card">
+        <div class="countdown-tag">
+          <span>🚀</span>
+          <span>لحظة الإطلاق المرتقبة</span>
+        </div>
+
+        <div id="countdownNumber" class="countdown-number pop-animation">5</div>
+
+        <p class="countdown-caption">استعدوا لانطلاق رحلة وِرد...</p>
       </div>
-
-      <div id="countdownNumber" class="countdown-number pop-animation">5</div>
-
-      <p class="countdown-caption">استعدوا لانطلاق رحلة وِرد...</p>
     </section>
 
     <!-- =======================================================
-         VIEW 3: FINAL WHITE CARD / QR CELEBRATION
+         VIEW 3: CARD / QR CELEBRATION (After Countdown)
          ======================================================= -->
     <section id="cardView">
       <div class="celebration-card">
         
-        <!-- Header -->
+        <!-- Banner Header -->
         <div class="card-banner">
           <div class="congrats-tag">
             <span>🎉</span>
@@ -567,7 +671,7 @@
           <p class="card-subtitle">امسح الرمز بكاميرا الجوال للانضمام للرحلة فوراً</p>
         </div>
 
-        <!-- QR Code -->
+        <!-- QR Code Section -->
         <div class="qr-section">
           <div class="qr-frame">
             <img id="qrImage" class="qr-image" src="" alt="باركود الوصول إلى رحلة وِرد" />
@@ -579,7 +683,7 @@
           </a>
         </div>
 
-        <!-- 3 Steps -->
+        <!-- How to Add to Home Screen -->
         <div class="steps-container">
           <h3 class="steps-heading">طريقة تثبيت التطبيق على الشاشة الرئيسية</h3>
           
@@ -610,7 +714,7 @@
           </div>
         </div>
 
-        <!-- Replay Button -->
+        <!-- Replay Launch Option -->
         <button id="replayBtn" class="replay-btn" type="button">
           <span>🔄</span>
           <span>إعادة تجربة الإطلاق</span>
@@ -626,11 +730,11 @@
   </footer>
 
   <!-- =========================================================
-       AUDIO SYNTHESIZER & LAUNCH CONTROLLER SCRIPT
+       LAUNCH CONTROLLER SCRIPT
        ========================================================= -->
   <script>
     // -------------------------------------------------------------
-    // 1. CONFIGURATION: Application URL
+    // 1. CONFIGURATION: Base URL for Application & QR code
     // -------------------------------------------------------------
     const APP_URL = "https://abdulrahmankaltham.github.io/wrd-journey/";
 
@@ -643,7 +747,7 @@
     qrLinkEl.href = APP_URL;
     qrLinkTextEl.textContent = APP_URL;
 
-    // DOM Elements
+    // Elements
     const heroView = document.getElementById('heroView');
     const countdownView = document.getElementById('countdownView');
     const countdownNumberEl = document.getElementById('countdownNumber');
@@ -652,159 +756,65 @@
     const replayBtn = document.getElementById('replayBtn');
 
     let countdownTimer = null;
+    let confettiInterval = null;
 
     // -------------------------------------------------------------
-    // 2. AUDIO ENGINE (Web Audio API - Instant, Zero CDN lag, 100% reliable)
+    // 2. CELEBRATION CONFETTI ENGINE (Brand colors: Green & Gold)
     // -------------------------------------------------------------
-    let audioCtx = null;
-
-    function getAudioContext() {
-      if (!audioCtx) {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (AudioContextClass) {
-          audioCtx = new AudioContextClass();
-        }
-      }
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      return audioCtx;
-    }
-
-    // Launch Button Whoosh / Rocket Sound
-    function playLaunchSound() {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = 'sine';
-      // Pitch sweeping up like a rocket launch
-      osc.frequency.setValueAtTime(150, now);
-      osc.frequency.exponentialRampToValueAtTime(700, now + 0.45);
-
-      gain.gain.setValueAtTime(0.35, now);
-      gain.gain.linearRampToValueAtTime(0.01, now + 0.48);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.5);
-    }
-
-    // Countdown Tick Sound (Crisp high chime for each second)
-    function playTickSound(count) {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-
-      const now = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      // Pitch rises as countdown approaches 1
-      const baseFreq = 440 + (5 - count) * 80; // 440Hz -> 760Hz
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(baseFreq, now);
-
-      gain.gain.setValueAtTime(0.28, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.2);
-    }
-
-    // Fanfare / Celebration Sound on Finale
-    function playCelebrationSound() {
-      const ctx = getAudioContext();
-      if (!ctx) return;
-
-      const now = ctx.currentTime;
-      const chordNotes = [523.25, 659.25, 783.99, 1046.50]; // C Major triumph chord
-
-      chordNotes.forEach((freq, idx) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
-
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.setValueAtTime(0.2, now + idx * 0.08);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start(now + idx * 0.08);
-        osc.stop(now + 1.3);
-      });
-    }
-
-    // -------------------------------------------------------------
-    // 3. CONFETTI BURST ENGINES (Solid Green, Gold & White)
-    // -------------------------------------------------------------
-    const brandColors = ['#006304', '#F9BF3B', '#FFFFFF', '#16A34A', '#EAB308'];
-
-    function fireConfettiWave() {
+    function fireConfettiPulse(intensity = 1) {
       if (typeof confetti !== 'function') return;
 
-      // Dual cannons from both bottom corners
+      const colors = ['#006304', '#F9BF3B', '#FFE680', '#2E7D32', '#C79545', '#16A34A'];
+      
       confetti({
-        particleCount: 45,
+        particleCount: Math.round(35 * intensity),
         angle: 60,
-        spread: 60,
-        origin: { x: 0.05, y: 0.75 },
-        colors: brandColors,
-        scalar: 1.15
+        spread: 55,
+        origin: { x: 0, y: 0.7 },
+        colors: colors
       });
 
       confetti({
-        particleCount: 45,
+        particleCount: Math.round(35 * intensity),
         angle: 120,
-        spread: 60,
-        origin: { x: 0.95, y: 0.75 },
-        colors: brandColors,
-        scalar: 1.15
+        spread: 55,
+        origin: { x: 1, y: 0.7 },
+        colors: colors
       });
     }
 
-    function fireGrandCelebrationConfetti() {
+    function grandFinaleConfetti() {
       if (typeof confetti !== 'function') return;
 
-      // Big central blast
+      const colors = ['#006304', '#F9BF3B', '#FFE680', '#2E7D32', '#C79545', '#FFFFFF'];
+      
+      // Central explosive burst
       confetti({
-        particleCount: 160,
-        spread: 130,
-        origin: { y: 0.5 },
-        colors: brandColors,
-        scalar: 1.3,
-        ticks: 360
+        particleCount: 140,
+        spread: 120,
+        origin: { y: 0.55 },
+        colors: colors,
+        scalar: 1.25,
+        ticks: 350
       });
 
-      // Side fireworks for 3 seconds
-      const end = Date.now() + 3000;
-      const interval = setInterval(function() {
+      // Lateral fireworks
+      let duration = 3000;
+      let end = Date.now() + duration;
+
+      let timer = setInterval(function() {
         if (Date.now() > end) {
-          return clearInterval(interval);
+          return clearInterval(timer);
         }
-        fireConfettiWave();
-      }, 300);
+        fireConfettiPulse(1.2);
+      }, 250);
     }
 
     // -------------------------------------------------------------
-    // 4. COUNTDOWN EXECUTION ENGINE (5 -> 4 -> 3 -> 2 -> 1)
+    // 3. COUNTDOWN & LAUNCH FLOW
     // -------------------------------------------------------------
-    function handleLaunch() {
-      // 1. Audio and launch click feedback
-      playLaunchSound();
-
-      // 2. Hide Hero smoothly
+    function startCountdownFlow() {
+      // Step A: Hide Hero View smoothly
       heroView.classList.add('hidden-fade');
 
       setTimeout(() => {
@@ -814,52 +824,46 @@
         let currentCount = 5;
         countdownNumberEl.textContent = currentCount;
         countdownNumberEl.className = 'countdown-number pop-animation';
+        
+        // Initial soft burst
+        fireConfettiPulse(0.8);
 
-        // Sound + Confetti wave for first number (5)
-        playTickSound(currentCount);
-        fireConfettiWave();
-
-        // 3. Countdown loop every 1 second
-        if (countdownTimer) clearInterval(countdownTimer);
-
+        // Interval every 1 second
         countdownTimer = setInterval(() => {
           currentCount--;
 
           if (currentCount > 0) {
-            // Update number & retrigger CSS animation
+            // Update number & re-trigger animation
             countdownNumberEl.textContent = currentCount;
             countdownNumberEl.classList.remove('pop-animation');
-            void countdownNumberEl.offsetWidth; // Force reflow
+            void countdownNumberEl.offsetWidth; // Trigger reflow
             countdownNumberEl.classList.add('pop-animation');
 
-            // Play sound & fire Confetti wave for each number (4, 3, 2, 1)
-            playTickSound(currentCount);
-            fireConfettiWave();
+            // Burst on each second
+            fireConfettiPulse(1);
           } else {
-            // Reached 0: Stop countdown and celebrate!
+            // Count reached 0 -> Launch Grand Finale & Card View!
             clearInterval(countdownTimer);
-            
-            // Celebration audio & grand confetti
-            playCelebrationSound();
-            fireGrandCelebrationConfetti();
+            grandFinaleConfetti();
 
-            // Transition to celebration card
             countdownView.classList.remove('show-countdown');
             countdownView.style.display = 'none';
 
+            // Show Final QR Card
             cardView.classList.add('show-card');
           }
         }, 1000);
 
-      }, 400);
+      }, 450);
     }
 
-    // Attach click listener to Launch Button
-    launchBtn.addEventListener('click', handleLaunch);
+    // Launch Button Click
+    launchBtn.addEventListener('click', startCountdownFlow);
 
-    // Replay handler to reset view during rehearsals
+    // Replay Button (To practice/reset during rehearsal)
     replayBtn.addEventListener('click', function() {
       if (countdownTimer) clearInterval(countdownTimer);
+      if (confettiInterval) clearInterval(confettiInterval);
 
       cardView.classList.remove('show-card');
       cardView.style.display = 'none';
