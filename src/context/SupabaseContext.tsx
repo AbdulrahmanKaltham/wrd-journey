@@ -402,10 +402,12 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => listener?.subscription?.unsubscribe();
   }, [mapProfileToUser]);
 
-  // Auth Functions: Robust Full-Stack Proxy with Supabase Sync
+  // Auth Functions: Robust Full-Stack Proxy with Supabase Sync and direct fallback
   const signUp = async (email: string, password: string, metadata: any) => {
     console.log('📝 [SupabaseContext] Executing signUp for:', { email, metadata });
+    let lastError: any = null;
 
+    // 1. Try Full-Stack Server API Proxy first (if backend running)
     try {
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
@@ -421,31 +423,106 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
 
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'فشل إنشاء الحساب. يرجى التأكد من البيانات.');
+      if (response.ok && data.success) {
+        if (data.session) {
+          try {
+            await supabase.auth.setSession(data.session);
+          } catch {}
+          setSession(data.session);
+        }
+        if (data.user) {
+          setSupabaseAuthUser(data.user);
+        }
+        if (data.profile) {
+          setProfile(data.profile);
+          setUser(mapProfileToUser(data.profile));
+        }
+        if (data.user?.id) {
+          await fetchProfile(data.user.id);
+        }
+        return { data: { user: data.user, session: data.session }, error: null };
+      } else {
+        const errMsg = data.error || (data.rawError ? `خطأ: ${data.rawError}` : null);
+        if (errMsg) {
+          lastError = new Error(errMsg);
+        }
+      }
+    } catch (proxyErr: any) {
+      console.warn('⚠️ [SupabaseContext] Server API signup failed/unavailable (e.g. static host), falling back to direct Supabase client...', proxyErr);
+      lastError = proxyErr;
+    }
+
+    // 2. Direct Supabase Client fallback (Essential for GitHub Pages & static deployments)
+    console.log('🔄 [SupabaseContext] Attempting direct client-side Supabase signUp...');
+    try {
+      const { data: directData, error: directError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: password.trim(),
+        options: {
+          data: {
+            name: metadata?.name || '',
+            role: metadata?.role || 'student',
+            gender: metadata?.gender || 'male',
+            circleName: metadata?.circleName || '',
+          },
+        },
+      });
+
+      if (directError) {
+        console.error('❌ [SupabaseContext] Direct Supabase signUp error:', directError);
+        throw directError;
       }
 
-      if (data.session) {
+      if (directData.user) {
+        setSupabaseAuthUser(directData.user);
+        if (directData.session) {
+          setSession(directData.session);
+        }
+
+        // Upsert profile in Supabase profiles table
         try {
-          await supabase.auth.setSession(data.session);
-        } catch {}
-        setSession(data.session);
+          const profileData = {
+            id: directData.user.id,
+            email: email.trim(),
+            name: (metadata?.name || '').trim(),
+            role: metadata?.role || 'student',
+            gender: metadata?.gender || 'male',
+            circle_id: null,
+            xp: 120,
+            streak: 1,
+            current_week: 1,
+            completed_nodes: ['w1_node_1'],
+            completed_weeks: [],
+          };
+
+          const { data: prof, error: profErr } = await supabase
+            .from('profiles')
+            .upsert(profileData, { onConflict: 'id' })
+            .select()
+            .single();
+
+          if (!profErr && prof) {
+            setProfile(prof);
+            setUser(mapProfileToUser(prof));
+          } else {
+            setProfile(profileData as any);
+            setUser(mapProfileToUser(profileData));
+          }
+        } catch (profCatch) {
+          console.warn('⚠️ [SupabaseContext] Could not upsert profile directly:', profCatch);
+        }
+
+        return { data: directData, error: null };
       }
-      if (data.user) {
-        setSupabaseAuthUser(data.user);
-      }
-      if (data.profile) {
-        setProfile(data.profile);
-        setUser(mapProfileToUser(data.profile));
-      }
-      if (data.user?.id) {
-        await fetchProfile(data.user.id);
-      }
-      return { data: { user: data.user, session: data.session }, error: null };
-    } catch (apiErr: any) {
-      console.error('❌ [SupabaseContext] Signup error:', apiErr.message);
-      throw apiErr;
+    } catch (directCatch: any) {
+      console.error('❌ [SupabaseContext] Direct Supabase signUp caught error:', directCatch);
+      throw directCatch;
     }
+
+    if (lastError) {
+      throw lastError;
+    }
+    throw new Error('فشل إنشاء الحساب. يرجى التحقق من البيانات والمحاولة مجدداً.');
   };
 
   const signIn = async (email: string, password: string) => {

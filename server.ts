@@ -205,13 +205,16 @@ async function startServer() {
   // 2. Signup Proxy
   app.post('/api/auth/signup', async (req, res) => {
     const { email, password, name, role = 'student', gender = 'male', circleName } = req.body;
-    console.log(`[API /api/auth/signup] Attempting signup for: ${email}, role: ${role}`);
+    console.log(`\n========================================`);
+    console.log(`📝 [API /api/auth/signup] Attempting signup for email: "${email}", name: "${name}", role: "${role}", gender: "${gender}"`);
 
     if (!email || !password || !name) {
-      return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة' });
+      console.warn(`⚠️ [API /api/auth/signup] Missing required fields: email=${!!email}, password=${!!password}, name=${!!name}`);
+      return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة (الاسم، البريد الإلكتروني، كلمة المرور)' });
     }
 
     try {
+      console.log(`📡 [API /api/auth/signup] Sending signup request to Supabase Auth (/auth/v1/signup)...`);
       const signupRes = await supabaseRequest('/auth/v1/signup', {
         method: 'POST',
         body: {
@@ -221,13 +224,15 @@ async function startServer() {
         },
       });
 
+      console.log(`📥 [API /api/auth/signup] Supabase Auth response status: ${signupRes.status}, ok: ${signupRes.ok}`);
+
       const user = signupRes.data?.user || (signupRes.data?.id ? signupRes.data : null);
 
       if (!signupRes.ok || !user) {
         const errorMsg = signupRes.data?.msg || signupRes.data?.error_description || signupRes.data?.message || (typeof signupRes.data === 'string' ? signupRes.data : '');
-        console.warn(`[API /api/auth/signup] Signup rejected:`, errorMsg, signupRes.data);
-        let friendlyMsg = 'تعذر إنشاء الحساب. يرجى مراجعة البيانات.';
+        console.error(`❌ [API /api/auth/signup] Supabase Auth rejected signup! Error:`, errorMsg, `Full payload:`, JSON.stringify(signupRes.data));
         
+        let friendlyMsg = 'تعذر إنشاء الحساب. يرجى مراجعة البيانات.';
         const lowerMsg = (errorMsg || '').toLowerCase();
         if (lowerMsg.includes('already registered') || lowerMsg.includes('already exists') || lowerMsg.includes('user already registered')) {
           friendlyMsg = 'هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.';
@@ -235,18 +240,20 @@ async function startServer() {
           friendlyMsg = 'تم تجاوز حد إرسال رسائل التأكيد مؤقتاً. يرجى إيقاف تأكيد البريد (Confirm email) من إعدادات Supabase للسماح بالتسجيل الفوري غير المحدود.';
         } else if (lowerMsg.includes('password should be at least') || lowerMsg.includes('weak_password')) {
           friendlyMsg = 'كلمة المرور ضعيفة أو قصيرة. يجب أن تكون 6 خانات على الأقل.';
-        } else if (lowerMsg.includes('valid email') || lowerMsg.includes('invalid email')) {
+        } else if (lowerMsg.includes('valid email') || lowerMsg.includes('invalid email') || lowerMsg.includes('unable to validate email')) {
           friendlyMsg = 'يرجى إدخال عنوان بريد إلكتروني صحيح.';
         } else if (errorMsg) {
-          friendlyMsg = `تعذر إنشاء الحساب: ${errorMsg}`;
+          friendlyMsg = `خطأ في التسجيل: ${errorMsg}`;
         }
         return res.status(400).json({
           success: false,
           error: friendlyMsg,
+          rawError: errorMsg,
+          details: signupRes.data,
         });
       }
 
-      console.log(`[API /api/auth/signup] Supabase user created successfully with ID: ${user.id}`);
+      console.log(`✅ [API /api/auth/signup] Supabase Auth user created successfully with ID: ${user.id}`);
 
       // Attempt immediate login to obtain access_token & session
       let accessToken = signupRes.data?.access_token || null;
@@ -259,12 +266,14 @@ async function startServer() {
       } : null;
 
       if (!accessToken) {
+        console.log(`🔑 [API /api/auth/signup] No access_token returned directly in signup, attempting password grant login...`);
         const loginAttempt = await supabaseRequest('/auth/v1/token?grant_type=password', {
           method: 'POST',
           body: { email: email.trim(), password: password.trim() },
         });
 
         if (loginAttempt.ok && loginAttempt.data?.access_token) {
+          console.log(`✅ [API /api/auth/signup] Password grant login succeeded after signup.`);
           accessToken = loginAttempt.data.access_token;
           session = {
             access_token: loginAttempt.data.access_token,
@@ -273,10 +282,12 @@ async function startServer() {
             token_type: loginAttempt.data.token_type,
             user: loginAttempt.data.user || user,
           };
+        } else {
+          console.log(`ℹ️ [API /api/auth/signup] Direct login post-signup returned status: ${loginAttempt.status} (Confirm email might be required)`);
         }
       }
 
-      // Insert or update profile in profiles table (teacher starts without circle)
+      // Upsert profile in profiles table with resolution on conflict
       const profileData = {
         id: user.id,
         email: email.trim(),
@@ -291,13 +302,23 @@ async function startServer() {
         completed_weeks: [],
       };
 
-      await supabaseRequest('/rest/v1/profiles', {
+      console.log(`💾 [API /api/auth/signup] Upserting profile record into 'profiles' table for user: ${user.id}...`);
+      const profileRes = await supabaseRequest('/rest/v1/profiles?on_conflict=id', {
         method: 'POST',
         token: accessToken || undefined,
+        prefer: 'resolution=merge-duplicates,return=representation',
         body: profileData,
       });
 
-      console.log(`[API /api/auth/signup] Signup completely finalized for: ${user.id}`);
+      if (!profileRes.ok) {
+        console.warn(`⚠️ [API /api/auth/signup] Profile upsert notice (status ${profileRes.status}):`, profileRes.data);
+      } else {
+        console.log(`✅ [API /api/auth/signup] Profile record saved/merged successfully.`);
+      }
+
+      console.log(`🎉 [API /api/auth/signup] Signup process completed successfully for: ${user.id} (${email})`);
+      console.log(`========================================\n`);
+
       return res.json({
         success: true,
         session,
@@ -305,10 +326,11 @@ async function startServer() {
         profile: profileData,
       });
     } catch (err: any) {
-      console.error(`[API /api/auth/signup] Internal error:`, err);
+      console.error(`❌ [API /api/auth/signup] Internal server error:`, err);
       return res.status(500).json({
         success: false,
-        error: 'حدث خطأ أثناء معالجة إنشاء الحساب.',
+        error: `حدث خطأ أثناء معالجة إنشاء الحساب: ${err.message || 'خطأ غير معروف'}`,
+        details: err.message,
       });
     }
   });

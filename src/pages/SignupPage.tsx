@@ -78,20 +78,24 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
       }
     } catch (error: any) {
       console.error('❌ [SignupFlow] Error during signup:', error);
-      const raw = error.message || '';
+      const raw = error.message || error.error_description || (typeof error === 'string' ? error : '');
       const lower = raw.toLowerCase();
       if (lower.includes('already registered') || lower.includes('already exists') || lower.includes('user already registered')) {
         setErrorMsg('هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.');
-      } else if (lower.includes('password should be at least') || lower.includes('weak_password')) {
-        setErrorMsg('كلمة المرور يجب أن تتكون من 6 خانات على الأقل.');
+      } else if (lower.includes('password should be at least') || lower.includes('weak_password') || lower.includes('password is too short')) {
+        setErrorMsg('كلمة المرور ضعيفة (يجب أن تتكون من 6 أحرف/أرقام على الأقل).');
       } else if (lower.includes('rate limit') || lower.includes('over_email_send_rate_limit')) {
         setErrorMsg('تم تجاوز حد إرسال رسائل التأكيد مؤقتاً. يرجى إيقاف تأكيد البريد (Confirm email) من إعدادات Supabase للسماح بالتسجيل الفوري غير المحدود.');
-      } else if (lower.includes('valid email') || lower.includes('invalid email')) {
-        setErrorMsg('يرجى إدخال عنوان بريد إلكتروني صحيح.');
-      } else if (lower.includes('failed to fetch') || lower.includes('network')) {
-        setErrorMsg('تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
+      } else if (lower.includes('valid email') || lower.includes('invalid email') || lower.includes('unable to validate email')) {
+        setErrorMsg('البريد الإلكتروني المدخل غير صالح. يرجى كتابة بريد إلكتروني صحيح.');
+      } else if (lower.includes('email not confirmed') || lower.includes('confirm email')) {
+        setErrorMsg('تأكيد البريد الإلكتروني مطلوب. يرجى التحقق من رسائل بريدك الإلكتروني لتأكيد الحساب أو إيقاف Confirm email في إعدادات Supabase.');
+      } else if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('connection')) {
+        setErrorMsg('خطأ في الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
+      } else if (raw) {
+        setErrorMsg(`تعذر إنشاء الحساب: ${raw}`);
       } else {
-        setErrorMsg(raw || 'حدث خطأ أثناء إنشاء الحساب. يرجى مراجعة البيانات والمحاولة مجدداً.');
+        setErrorMsg('حدث خطأ أثناء إنشاء الحساب. يرجى مراجعة البيانات والمحاولة مجدداً.');
       }
     } finally {
       setLoading(false);
