@@ -600,13 +600,20 @@ async function startServer() {
       });
       const user = signupRes.data?.user || (signupRes.data?.id ? signupRes.data : null);
       if (!signupRes.ok || !user) {
-        const errorMsg = signupRes.data?.msg || signupRes.data?.error_description || signupRes.data?.message;
-        console.warn(`[API /api/auth/signup] Signup rejected:`, errorMsg);
-        let friendlyMsg = errorMsg || "\u062A\u0639\u0630\u0631 \u0625\u0646\u0634\u0627\u0621 \u0627\u0644\u062D\u0633\u0627\u0628. \u064A\u0631\u062C\u0649 \u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A.";
-        if (errorMsg === "User already registered" || errorMsg?.includes("already registered")) {
+        const errorMsg = signupRes.data?.msg || signupRes.data?.error_description || signupRes.data?.message || (typeof signupRes.data === "string" ? signupRes.data : "");
+        console.warn(`[API /api/auth/signup] Signup rejected:`, errorMsg, signupRes.data);
+        let friendlyMsg = "\u062A\u0639\u0630\u0631 \u0625\u0646\u0634\u0627\u0621 \u0627\u0644\u062D\u0633\u0627\u0628. \u064A\u0631\u062C\u0649 \u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A.";
+        const lowerMsg = (errorMsg || "").toLowerCase();
+        if (lowerMsg.includes("already registered") || lowerMsg.includes("already exists") || lowerMsg.includes("user already registered")) {
           friendlyMsg = "\u0647\u0630\u0627 \u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A \u0645\u0633\u062C\u0644 \u0645\u0633\u0628\u0642\u0627\u064B. \u064A\u0645\u0643\u0646\u0643 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0645\u0628\u0627\u0634\u0631\u0629.";
-        } else if (errorMsg?.includes("rate limit")) {
+        } else if (lowerMsg.includes("rate limit") || lowerMsg.includes("over_email_send_rate_limit")) {
           friendlyMsg = "\u062A\u0645 \u062A\u062C\u0627\u0648\u0632 \u062D\u062F \u0625\u0631\u0633\u0627\u0644 \u0631\u0633\u0627\u0626\u0644 \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0645\u0624\u0642\u062A\u0627\u064B. \u064A\u0631\u062C\u0649 \u0625\u064A\u0642\u0627\u0641 \u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0628\u0631\u064A\u062F (Confirm email) \u0645\u0646 \u0625\u0639\u062F\u0627\u062F\u0627\u062A Supabase \u0644\u0644\u0633\u0645\u0627\u062D \u0628\u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0641\u0648\u0631\u064A \u063A\u064A\u0631 \u0627\u0644\u0645\u062D\u062F\u0648\u062F.";
+        } else if (lowerMsg.includes("password should be at least") || lowerMsg.includes("weak_password")) {
+          friendlyMsg = "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0636\u0639\u064A\u0641\u0629 \u0623\u0648 \u0642\u0635\u064A\u0631\u0629. \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 6 \u062E\u0627\u0646\u0627\u062A \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644.";
+        } else if (lowerMsg.includes("valid email") || lowerMsg.includes("invalid email")) {
+          friendlyMsg = "\u064A\u0631\u062C\u0649 \u0625\u062F\u062E\u0627\u0644 \u0639\u0646\u0648\u0627\u0646 \u0628\u0631\u064A\u062F \u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A \u0635\u062D\u064A\u062D.";
+        } else if (errorMsg) {
+          friendlyMsg = `\u062A\u0639\u0630\u0631 \u0625\u0646\u0634\u0627\u0621 \u0627\u0644\u062D\u0633\u0627\u0628: ${errorMsg}`;
         }
         return res.status(400).json({
           success: false,
