@@ -224,13 +224,21 @@ async function startServer() {
       const user = signupRes.data?.user || (signupRes.data?.id ? signupRes.data : null);
 
       if (!signupRes.ok || !user) {
-        const errorMsg = signupRes.data?.msg || signupRes.data?.error_description || signupRes.data?.message;
-        console.warn(`[API /api/auth/signup] Signup rejected:`, errorMsg);
-        let friendlyMsg = errorMsg || 'تعذر إنشاء الحساب. يرجى مراجعة البيانات.';
-        if (errorMsg === 'User already registered' || errorMsg?.includes('already registered')) {
+        const errorMsg = signupRes.data?.msg || signupRes.data?.error_description || signupRes.data?.message || (typeof signupRes.data === 'string' ? signupRes.data : '');
+        console.warn(`[API /api/auth/signup] Signup rejected:`, errorMsg, signupRes.data);
+        let friendlyMsg = 'تعذر إنشاء الحساب. يرجى مراجعة البيانات.';
+        
+        const lowerMsg = (errorMsg || '').toLowerCase();
+        if (lowerMsg.includes('already registered') || lowerMsg.includes('already exists') || lowerMsg.includes('user already registered')) {
           friendlyMsg = 'هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.';
-        } else if (errorMsg?.includes('rate limit')) {
+        } else if (lowerMsg.includes('rate limit') || lowerMsg.includes('over_email_send_rate_limit')) {
           friendlyMsg = 'تم تجاوز حد إرسال رسائل التأكيد مؤقتاً. يرجى إيقاف تأكيد البريد (Confirm email) من إعدادات Supabase للسماح بالتسجيل الفوري غير المحدود.';
+        } else if (lowerMsg.includes('password should be at least') || lowerMsg.includes('weak_password')) {
+          friendlyMsg = 'كلمة المرور ضعيفة أو قصيرة. يجب أن تكون 6 خانات على الأقل.';
+        } else if (lowerMsg.includes('valid email') || lowerMsg.includes('invalid email')) {
+          friendlyMsg = 'يرجى إدخال عنوان بريد إلكتروني صحيح.';
+        } else if (errorMsg) {
+          friendlyMsg = `تعذر إنشاء الحساب: ${errorMsg}`;
         }
         return res.status(400).json({
           success: false,

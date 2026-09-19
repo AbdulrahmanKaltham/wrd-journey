@@ -20,7 +20,7 @@ interface SignupPageProps {
 }
 
 export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess }) => {
-  const { signUp, refreshProfile, triggerCelebration } = useSupabase();
+  const { signUp, signOut, refreshProfile, triggerCelebration } = useSupabase();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +29,16 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
+
+  const handleBackToLoginClick = async () => {
+    // If a partial session without profile was created, sign out to ensure clean state
+    try {
+      await signOut();
+    } catch {}
+    if (onBackToLogin) {
+      onBackToLogin();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,12 +79,19 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
     } catch (error: any) {
       console.error('❌ [SignupFlow] Error during signup:', error);
       const raw = error.message || '';
-      if (raw.includes('already registered') || raw.includes('User already registered')) {
-        setErrorMsg('البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.');
-      } else if (raw.includes('Password should be at least')) {
+      const lower = raw.toLowerCase();
+      if (lower.includes('already registered') || lower.includes('already exists') || lower.includes('user already registered')) {
+        setErrorMsg('هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.');
+      } else if (lower.includes('password should be at least') || lower.includes('weak_password')) {
         setErrorMsg('كلمة المرور يجب أن تتكون من 6 خانات على الأقل.');
+      } else if (lower.includes('rate limit') || lower.includes('over_email_send_rate_limit')) {
+        setErrorMsg('تم تجاوز حد إرسال رسائل التأكيد مؤقتاً. يرجى إيقاف تأكيد البريد (Confirm email) من إعدادات Supabase للسماح بالتسجيل الفوري غير المحدود.');
+      } else if (lower.includes('valid email') || lower.includes('invalid email')) {
+        setErrorMsg('يرجى إدخال عنوان بريد إلكتروني صحيح.');
+      } else if (lower.includes('failed to fetch') || lower.includes('network')) {
+        setErrorMsg('تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
       } else {
-        setErrorMsg(raw || 'حدث خطأ أثناء إنشاء الحساب. يرجى المحاولة مجدداً.');
+        setErrorMsg(raw || 'حدث خطأ أثناء إنشاء الحساب. يرجى مراجعة البيانات والمحاولة مجدداً.');
       }
     } finally {
       setLoading(false);
@@ -251,7 +268,7 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
           <div className="text-center pt-2 border-t border-gray-100">
             <button
               type="button"
-              onClick={onBackToLogin}
+              onClick={handleBackToLoginClick}
               className="text-xs text-[#006304] font-bold hover:underline inline-flex items-center gap-1 cursor-pointer"
             >
               <span>لديك حساب بالفعل؟ سجل دخولك</span>

@@ -39,7 +39,14 @@ const AppRouter: React.FC = () => {
 
   const [authView, setAuthView] = useState<'login' | 'signup'>('login');
 
-  console.log('🔍 [App.tsx] profile:', profile, 'loading:', loading, 'isRefreshing:', isRefreshing, 'hasSession:', !!session);
+  // If user signs out or has no session, guarantee view is 'login'
+  useEffect(() => {
+    if (!session) {
+      setAuthView('login');
+    }
+  }, [session]);
+
+  console.log('🔍 [App.tsx] profile:', profile, 'loading:', loading, 'isRefreshing:', isRefreshing, 'hasSession:', !!session, 'authView:', authView);
 
   // Loading state (initial loading, or refresh while profile is not yet available)
   if (loading || (isRefreshing && !profile)) {
@@ -54,7 +61,7 @@ const AppRouter: React.FC = () => {
     );
   }
 
-  // Not signed in: Show LoginPage / SignupPage
+  // Not signed in: Always default to LoginPage, allow toggle to SignupPage
   if (!session) {
     if (authView === 'signup') {
       return <SignupPage onBackToLogin={() => setAuthView('login')} />;
@@ -62,8 +69,12 @@ const AppRouter: React.FC = () => {
     return <LoginPage onGoToSignup={() => setAuthView('signup')} />;
   }
 
-  // Signed in, but no profile yet (new account) and not currently refreshing: Show SignupPage to complete setup
+  // Signed in, but no profile yet and not currently refreshing:
+  // If user explicitly switched to login, sign them out so they can log in cleanly with another account
   if (!profile && !isRefreshing) {
+    if (authView === 'login') {
+      return <LoginPage onGoToSignup={() => setAuthView('signup')} />;
+    }
     return <SignupPage onBackToLogin={() => setAuthView('login')} />;
   }
 
