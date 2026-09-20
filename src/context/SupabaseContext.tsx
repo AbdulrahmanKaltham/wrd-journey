@@ -18,7 +18,7 @@ import {
 import { WEEKS_DATA, INITIAL_BADGES, INITIAL_DECORATIONS } from '../data/quranJourneyData';
 import { updateStreakOnActivity, getTodayDateString, getYesterdayDateString } from '../services/streakService';
 
-export type TabType = 'home' | 'journey' | 'camp' | 'achievements' | 'profile' | 'teacher' | 'students' | 'halaqah';
+export type TabType = 'home' | 'journey' | 'camp' | 'achievements' | 'profile' | 'teacher' | 'students' | 'halaqah' | 'admin' | 'admin_analytics' | 'admin_teachers' | 'admin_add_teacher';
 
 export interface SupabaseContextType {
   session: Session | null;
@@ -192,6 +192,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       email: data.email,
       role: data.role || 'student',
       gender: data.gender || 'male',
+      mustChangePassword: !!(data.must_change_password ?? data.mustChangePassword),
       circleId: data.circle_id || '',
       teacherId: data.teacher_id || '',
       xp: data.xp ?? 0,
@@ -247,6 +248,17 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     if (data) {
+      // Check auth user metadata for must_change_password flag or admin role synchronization
+      try {
+        const { data: authUserData } = await supabase.auth.getUser();
+        if (authUserData?.user?.user_metadata?.must_change_password !== undefined) {
+          data.must_change_password = !!authUserData.user.user_metadata.must_change_password;
+        }
+        if (authUserData?.user?.user_metadata?.role === 'admin' || authUserData?.user?.app_metadata?.role === 'admin') {
+          data.role = 'admin';
+        }
+      } catch {}
+
       setProfile(data);
       const mapped = mapProfileToUser(data);
       console.log('👤 [SupabaseContext] Current user mapped from database:', mapped);

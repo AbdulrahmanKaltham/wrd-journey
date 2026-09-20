@@ -11,6 +11,13 @@ const SUPABASE_HOST = 'olhruwqwdiehbqwzbxso.supabase.co';
 const SUPABASE_ANON_KEY = (process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9saHJ1d3F3ZGllaGJxd3pieHNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTg5NTIsImV4cCI6MjEwMjY5NDk1Mn0.LB2r-fNh3UoEwDAeeobEJJMoY5QroNY9owwhEH0lJiY').trim();
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '').trim();
 
+// Track teachers who must change their temporary passwords
+const teachersMustChangePasswordSet = new Set<string>();
+const deactivatedTeachersSet = new Set<string>();
+// Persistent set of admin user IDs and emails for role enforcement
+const adminUserIdsSet = new Set<string>(['c9e75bd7-f3ab-452f-b524-021461aca0c8']);
+const adminEmailsSet = new Set<string>(['quranum@um.edu.sa']);
+
 // UUID format validation helper
 const isValidUUID = (str?: string | null): boolean => {
   if (!str || typeof str !== 'string') return false;
@@ -165,7 +172,25 @@ async function startServer() {
         profile = createRes.ok && createRes.data ? (Array.isArray(createRes.data) ? createRes.data[0] : createRes.data) : newProfile;
       }
 
-      console.log(`[API /api/auth/login] Login success for: ${user.id}`);
+      // Attach must_change_password flag from server-side memory tracking or auth metadata
+      if (profile) {
+        const metadata = user.user_metadata || {};
+        const appMetadata = user.app_metadata || {};
+        const mustChange = teachersMustChangePasswordSet.has(user.id) || !!metadata.must_change_password;
+        profile.must_change_password = mustChange;
+
+        // Ensure admin role recognition from Auth metadata or admin set
+        if (
+          metadata.role === 'admin' ||
+          appMetadata.role === 'admin' ||
+          adminUserIdsSet.has(user.id) ||
+          (user.email && adminEmailsSet.has(user.email.toLowerCase()))
+        ) {
+          profile.role = 'admin';
+        }
+      }
+
+      console.log(`[API /api/auth/login] Login success for: ${user.id} (role: ${profile?.role}, mustChangePw: ${profile?.must_change_password})`);
       return res.json({
         success: true,
         session,
@@ -340,16 +365,25 @@ async function startServer() {
     const { userId } = req.params;
     try {
       console.log(`[API /api/profile] Fetching profile for user: ${userId}`);
-      const profileRes = await supabaseRequest(`/rest/v1/profiles?id=eq.${userId}&select=*`);
+      const profileRes = await supabaseRequest(`/rest/v1/profiles?id=eq.${userId}&select=*`, {
+        useServiceRole: true,
+      });
       const profile = Array.isArray(profileRes.data) && profileRes.data.length > 0 ? profileRes.data[0] : null;
 
       if (!profile) {
         return res.status(404).json({ success: false, error: 'الملف الشخصي غير موجود' });
       }
 
+      // Check admin status from set
+      if (adminUserIdsSet.has(userId) || (profile.email && adminEmailsSet.has(profile.email.toLowerCase()))) {
+        profile.role = 'admin';
+      }
+
       let circle = null;
       if (profile.circle_id) {
-        const circleRes = await supabaseRequest(`/rest/v1/circles?id=eq.${profile.circle_id}&select=*`);
+        const circleRes = await supabaseRequest(`/rest/v1/circles?id=eq.${profile.circle_id}&select=*`, {
+          useServiceRole: true,
+        });
         circle = Array.isArray(circleRes.data) && circleRes.data.length > 0 ? circleRes.data[0] : null;
       }
 
@@ -2096,6 +2130,611 @@ async function startServer() {
       unlockedBadges,
       streakResult,
     });
+  });
+
+  // ==========================================
+  // 5. ADMIN API ENDPOINTS (نظام إدارة التطبيق الشامل)
+  // ==========================================
+
+  // 5.1 Admin Statistics & Analytics
+  app.get('/api/admin/stats', async (req, res) => {
+    try {
+      console.log('📊 [API GET /api/admin/stats] Aggregating comprehensive admin analytics...');
+      const [profilesRes, circlesRes, recordingsRes] = await Promise.all([
+        supabaseRequest('/rest/v1/profiles?select=*', { useServiceRole: true }),
+        supabaseRequest('/rest/v1/circles?select=*', { useServiceRole: true }),
+        supabaseRequest('/rest/v1/recordings?select=id,created_at,type,status,audio_url', { useServiceRole: true }),
+      ]);
+
+      const allProfiles: any[] = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+      const allCircles: any[] = Array.isArray(circlesRes.data) ? circlesRes.data : [];
+      const allRecordings: any[] = Array.isArray(recordingsRes.data) ? recordingsRes.data : [];
+
+      // Exclude Admin accounts from student and teacher counts
+      const students = allProfiles.filter(p => p.role === 'student');
+      const teachers = allProfiles.filter(p => p.role === 'teacher' && !deactivatedTeachersSet.has(p.id));
+
+      const maleStudents = students.filter(s => s.gender === 'male');
+      const femaleStudents = students.filter(s => s.gender === 'female');
+
+      const maleTeachers = teachers.filter(t => t.gender === 'male');
+      const femaleTeachers = teachers.filter(t => t.gender === 'female');
+
+      const activeCircles = allCircles.filter(c => c.is_active !== false);
+
+      // Active students today (students with streak updated or activity today)
+      const now = new Date();
+      const todayIso = now.toISOString().split('T')[0];
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+      // Active today: streak > 0 or recording/activity created today
+      const activeStudentsToday = students.filter(s => {
+        if (s.last_active_date && s.last_active_date.startsWith(todayIso)) return true;
+        if (s.streak && s.streak > 0 && s.updated_at && s.updated_at.startsWith(todayIso)) return true;
+        // Fallback: has streak > 0
+        return (s.streak || 0) > 0;
+      });
+
+      // Total audio recordings uploaded
+      const totalRecordings = allRecordings.filter(r => r.audio_url || r.type === 'recording').length;
+
+      // Total completed weeks across the app (sum of completed_weeks arrays)
+      let totalCompletedWeeks = 0;
+      students.forEach(s => {
+        if (Array.isArray(s.completed_weeks)) {
+          totalCompletedWeeks += s.completed_weeks.length;
+        }
+      });
+
+      // Total XP granted in the last 7 days (sum of student XP or estimated for users created/active in 7 days)
+      const newUsersLast7Days = allProfiles.filter(p => {
+        if (!p.created_at) return false;
+        return new Date(p.created_at) >= sevenDaysAgo;
+      });
+
+      const xpLast7Days = students.reduce((acc, s) => {
+        // If created in last 7 days or has recent activity, add proportion of XP
+        const createdDate = s.created_at ? new Date(s.created_at) : null;
+        if (createdDate && createdDate >= sevenDaysAgo) {
+          return acc + (Number(s.xp) || 0);
+        }
+        return acc + Math.min(Number(s.xp) || 0, 75);
+      }, 0);
+
+      // --- Chart Data 1: New users last 30 days (daily breakdown) ---
+      const dailyNewUsersMap: Record<string, number> = {};
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+        const dayKey = d.toISOString().split('T')[0];
+        dailyNewUsersMap[dayKey] = 0;
+      }
+      allProfiles.forEach(p => {
+        if (p.created_at) {
+          const dayKey = p.created_at.split('T')[0];
+          if (dailyNewUsersMap[dayKey] !== undefined) {
+            dailyNewUsersMap[dayKey]++;
+          }
+        }
+      });
+      const newUsers30Days = Object.entries(dailyNewUsersMap).map(([date, count]) => {
+        const d = new Date(date);
+        const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+        return { date, label: dayLabel, count };
+      });
+
+      // --- Chart Data 2: Students per Circle (Bar Chart) ---
+      const circleStudentCounts = activeCircles.map(c => {
+        const circleStudents = students.filter(s => s.circle_id === c.id || (Array.isArray(c.student_ids) && c.student_ids.includes(s.id)));
+        return {
+          id: c.id,
+          name: c.name || 'حلقة قرآنية',
+          studentsCount: circleStudents.length,
+          gender: c.gender === 'female' ? 'طالبات' : 'طلاب',
+        };
+      });
+
+      // --- Chart Data 3: Students distribution across weeks (Pie Chart) ---
+      const weekDistributionMap: Record<number, number> = {};
+      for (let w = 1; w <= 17; w++) {
+        weekDistributionMap[w] = 0;
+      }
+      students.forEach(s => {
+        const currentW = Math.min(17, Math.max(1, Number(s.current_week) || 1));
+        weekDistributionMap[currentW] = (weekDistributionMap[currentW] || 0) + 1;
+      });
+      const studentsByWeek = Object.entries(weekDistributionMap)
+        .filter(([_, count]) => count > 0)
+        .map(([week, count]) => ({
+          week: Number(week),
+          name: `الأسبوع ${week}`,
+          value: count,
+        }));
+      // Fallback if everyone is week 1
+      if (studentsByWeek.length === 0) {
+        studentsByWeek.push({ week: 1, name: 'الأسبوع 1', value: students.length });
+      }
+
+      // --- Chart Data 4: Daily Recordings in last 14 days ---
+      const dailyRecordingsMap: Record<string, number> = {};
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+        const dayKey = d.toISOString().split('T')[0];
+        dailyRecordingsMap[dayKey] = 0;
+      }
+      allRecordings.forEach(r => {
+        if (r.created_at) {
+          const dayKey = r.created_at.split('T')[0];
+          if (dailyRecordingsMap[dayKey] !== undefined) {
+            dailyRecordingsMap[dayKey]++;
+          }
+        }
+      });
+      const recordings14Days = Object.entries(dailyRecordingsMap).map(([date, count]) => {
+        const d = new Date(date);
+        const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+        return { date, label: dayLabel, count };
+      });
+
+      return res.json({
+        success: true,
+        stats: {
+          teachers: {
+            total: teachers.length,
+            male: maleTeachers.length,
+            female: femaleTeachers.length,
+          },
+          students: {
+            total: students.length,
+            male: maleStudents.length,
+            female: femaleStudents.length,
+          },
+          activeCirclesCount: activeCircles.length,
+          activeStudentsTodayCount: activeStudentsToday.length,
+          totalRecordingsCount: totalRecordings,
+          totalCompletedWeeksCount: totalCompletedWeeks,
+          xpLast7Days,
+          newUsersLast7DaysCount: newUsersLast7Days.length,
+        },
+        charts: {
+          newUsers30Days,
+          circleStudentCounts,
+          studentsByWeek,
+          recordings14Days,
+        },
+      });
+    } catch (err: any) {
+      console.error('❌ [API /api/admin/stats] Error:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 5.2 Admin Teachers List with Circle and Students info
+  app.get('/api/admin/teachers', async (req, res) => {
+    try {
+      console.log('📋 [API GET /api/admin/teachers] Fetching teachers for Admin dashboard...');
+      const [profilesRes, circlesRes] = await Promise.all([
+        supabaseRequest('/rest/v1/profiles?select=*', { useServiceRole: true }),
+        supabaseRequest('/rest/v1/circles?select=*', { useServiceRole: true }),
+      ]);
+
+      const allProfiles: any[] = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+      const allCircles: any[] = Array.isArray(circlesRes.data) ? circlesRes.data : [];
+
+      const students = allProfiles.filter(p => p.role === 'student');
+      const teacherProfiles = allProfiles.filter(p => p.role === 'teacher');
+
+      const teachersList = teacherProfiles.map(t => {
+        // Teacher circle
+        const circle = allCircles.find(c => c.teacher_id === t.id || c.id === t.circle_id);
+        const circleStudents = students.filter(s => s.circle_id === circle?.id || s.teacher_id === t.id);
+        const isDeactivated = deactivatedTeachersSet.has(t.id);
+        const mustChangePassword = teachersMustChangePasswordSet.has(t.id) || !!t.must_change_password;
+
+        return {
+          id: t.id,
+          name: t.name || 'معلم قرآن',
+          email: t.email || '',
+          gender: t.gender || 'male',
+          circleId: circle?.id || t.circle_id || null,
+          circleName: circle?.name || 'بدون حلقة',
+          studentsCount: circleStudents.length,
+          createdAt: t.created_at || new Date().toISOString(),
+          isDeactivated,
+          mustChangePassword,
+        };
+      });
+
+      return res.json({
+        success: true,
+        teachers: teachersList,
+      });
+    } catch (err: any) {
+      console.error('❌ [API /api/admin/teachers] Error:', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 5.3 Admin Add New Teacher (generates temporary password, creates Auth user, Profile, and Circle)
+  // Completely server-side secured: passwords generated and managed via Service Role Key
+  app.post('/api/admin/create-teacher', async (req, res) => {
+    const { name, email, gender = 'male', circleName } = req.body;
+    console.log(`\n========================================`);
+    console.log(`👨‍🏫 [API /api/admin/create-teacher] Admin creating new teacher: ${name} (${email}), gender: ${gender}`);
+
+    if (!name || !email) {
+      return res.status(400).json({ success: false, error: 'الاسم الكامل والبريد الإلكتروني مطلوبان لإنشاء حساب المعلم.' });
+    }
+
+    try {
+      // 1. Generate clean, secure random temporary password (letters + numbers)
+      const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let tempPassword = '';
+      for (let i = 0; i < 9; i++) {
+        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      console.log(`🔑 Server-side generated temporary password for teacher (length ${tempPassword.length})`);
+
+      // 2. Create user in Supabase Auth via Admin API /auth/v1/admin/users using Service Role key
+      // If Admin API is available, creates user with email pre-confirmed so teacher can log in immediately
+      let teacherId: string | null = null;
+      let user: any = null;
+
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        console.log(`🔐 Creating teacher Auth account via Supabase Admin API with Service Role...`);
+        const adminCreateRes = await supabaseRequest('/auth/v1/admin/users', {
+          method: 'POST',
+          useServiceRole: true,
+          body: {
+            email: email.trim(),
+            password: tempPassword,
+            email_confirm: true,
+            user_metadata: {
+              name: name.trim(),
+              role: 'teacher',
+              gender,
+              must_change_password: true,
+            },
+            app_metadata: {
+              role: 'teacher',
+            },
+          },
+        });
+
+        if (adminCreateRes.ok && adminCreateRes.data) {
+          user = adminCreateRes.data.user || adminCreateRes.data;
+          teacherId = user.id;
+          console.log(`✅ Teacher Auth account created via Admin API: ${teacherId}`);
+        } else {
+          console.warn(`⚠️ Admin API user creation returned status ${adminCreateRes.status}:`, adminCreateRes.data);
+          const rawErr = adminCreateRes.data?.msg || adminCreateRes.data?.message || adminCreateRes.data?.error_description || '';
+          if (rawErr.toLowerCase().includes('already registered') || rawErr.toLowerCase().includes('already exists')) {
+            return res.status(400).json({ success: false, error: 'هذا البريد الإلكتروني مسجل مسبقاً في النظام لمعلم أو طالب آخر.' });
+          }
+        }
+      }
+
+      // Fallback to /auth/v1/signup if admin API was not used or failed non-duplicate
+      if (!teacherId) {
+        console.log(`ℹ️ Falling back to /auth/v1/signup for teacher account creation...`);
+        const signupRes = await supabaseRequest('/auth/v1/signup', {
+          method: 'POST',
+          body: {
+            email: email.trim(),
+            password: tempPassword,
+            data: {
+              name: name.trim(),
+              role: 'teacher',
+              gender,
+              must_change_password: true,
+            },
+          },
+        });
+
+        user = signupRes.data?.user || (signupRes.data?.id ? signupRes.data : null);
+
+        if (!signupRes.ok || !user) {
+          const rawErr = signupRes.data?.msg || signupRes.data?.error_description || signupRes.data?.message || '';
+          const lower = rawErr.toLowerCase();
+          let userFacingError = `تعذر إنشاء حساب المعلم: ${rawErr || 'خطأ غير معروف في خادم المصادقة'}`;
+          if (lower.includes('already registered') || lower.includes('already exists')) {
+            userFacingError = 'هذا البريد الإلكتروني مسجل مسبقاً في النظام لمعلم أو طالب آخر.';
+          }
+          console.error(`❌ [API /api/admin/create-teacher] Supabase Auth creation failed:`, rawErr);
+          return res.status(400).json({ success: false, error: userFacingError });
+        }
+        teacherId = user.id;
+      }
+
+      // 3. Mark teacher in server memory set for must_change_password
+      teachersMustChangePasswordSet.add(teacherId);
+
+      // 4. Create Circle if circleName was provided (using service role to bypass RLS)
+      let createdCircle: any = null;
+      let circleId: string | null = null;
+      if (circleName && circleName.trim()) {
+        const genCircleId = crypto.randomUUID();
+        const circleData = {
+          id: genCircleId,
+          name: circleName.trim(),
+          teacher_id: teacherId,
+          teacher_name: name.trim(),
+          gender, // Circle gender strictly matches teacher gender
+          student_ids: [],
+          is_active: true,
+        };
+
+        const circleRes = await supabaseRequest('/rest/v1/circles', {
+          method: 'POST',
+          useServiceRole: true,
+          body: circleData,
+        });
+
+        if (circleRes.ok) {
+          createdCircle = circleData;
+          circleId = genCircleId;
+          console.log(`✅ Circle created for teacher: ${circleName} (${genCircleId})`);
+        } else {
+          console.warn(`⚠️ Could not save circle to database:`, circleRes.data);
+        }
+      }
+
+      // 5. Upsert profile in profiles table with role=teacher and gender using Service Role key
+      const profileData = {
+        id: teacherId,
+        email: email.trim(),
+        name: name.trim(),
+        role: 'teacher',
+        gender,
+        circle_id: circleId,
+        xp: 0,
+        streak: 1,
+        current_week: 1,
+        completed_nodes: [],
+        completed_weeks: [],
+      };
+
+      const profRes = await supabaseRequest('/rest/v1/profiles?on_conflict=id', {
+        method: 'POST',
+        useServiceRole: true,
+        prefer: 'resolution=merge-duplicates,return=representation',
+        body: profileData,
+      });
+
+      if (!profRes.ok) {
+        console.warn(`⚠️ Profile upsert warning with service role:`, profRes.data);
+      }
+
+      console.log(`🎉 [API /api/admin/create-teacher] Teacher successfully created! ID: ${teacherId}`);
+      console.log(`========================================\n`);
+
+      return res.json({
+        success: true,
+        message: 'تم إنشاء حساب المعلم والحلقة بنجاح',
+        teacher: {
+          id: teacherId,
+          name: name.trim(),
+          email: email.trim(),
+          gender,
+          circleName: circleName?.trim() || null,
+          circleId,
+          mustChangePassword: true,
+        },
+        temporaryPassword: tempPassword,
+        circle: createdCircle,
+      });
+    } catch (err: any) {
+      console.error(`❌ [API /api/admin/create-teacher] Internal error:`, err);
+      return res.status(500).json({ success: false, error: err.message || 'حدث خطأ غير متوقع أثناء إنشاء حساب المعلم' });
+    }
+  });
+
+  // 5.4 Admin Regenerate Temporary Password for Teacher
+  app.post('/api/admin/regenerate-teacher-password', async (req, res) => {
+    const { teacherId, teacherEmail } = req.body;
+    if (!teacherId) {
+      return res.status(400).json({ success: false, error: 'معرف المعلم مطلوب' });
+    }
+
+    try {
+      const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let newTempPassword = '';
+      for (let i = 0; i < 9; i++) {
+        newTempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      // Mark must change password in server-side memory
+      teachersMustChangePasswordSet.add(teacherId);
+
+      // Update teacher Auth password securely using Supabase service role
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        const updateRes = await supabaseRequest(`/auth/v1/admin/users/${teacherId}`, {
+          method: 'PUT',
+          useServiceRole: true,
+          body: {
+            password: newTempPassword,
+            user_metadata: { must_change_password: true },
+          },
+        });
+        if (!updateRes.ok) {
+          const rawErr = updateRes.data?.msg || updateRes.data?.message || '';
+          console.warn(`⚠️ Could not update user password via service role:`, rawErr);
+        }
+      }
+
+      console.log(`🔑 [API /api/admin/regenerate-teacher-password] New password generated for teacher ${teacherId}`);
+
+      return res.json({
+        success: true,
+        message: 'تم توليد كلمة مرور مؤقتة جديدة للمعلم بنجاح',
+        temporaryPassword: newTempPassword,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'فشل توليد كلمة المرور' });
+    }
+  });
+
+  // 5.5 Admin Delete or Deactivate Teacher
+  app.post('/api/admin/delete-teacher', async (req, res) => {
+    const { teacherId } = req.body;
+    if (!teacherId) {
+      return res.status(400).json({ success: false, error: 'معرف المعلم مطلوب' });
+    }
+
+    try {
+      console.log(`🗑️ [API /api/admin/delete-teacher] Deactivating teacher: ${teacherId}`);
+      deactivatedTeachersSet.add(teacherId);
+
+      // Deactivate circles associated with this teacher using service role
+      await supabaseRequest(`/rest/v1/circles?teacher_id=eq.${teacherId}`, {
+        method: 'PATCH',
+        useServiceRole: true,
+        body: { is_active: false },
+      });
+
+      // Update profile status in profiles table using service role
+      await supabaseRequest(`/rest/v1/profiles?id=eq.${teacherId}`, {
+        method: 'PATCH',
+        useServiceRole: true,
+        body: { role: 'deactivated_teacher' },
+      });
+
+      return res.json({
+        success: true,
+        message: 'تم تعطيل حساب المعلم وإلغاء تنشيط حلقاته بنجاح',
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'فشل تعطيل حساب المعلم' });
+    }
+  });
+
+  // 5.6 Teacher Mandatory Change Password Endpoint
+  app.post('/api/admin/teacher-change-password', async (req, res) => {
+    const { userId, newPassword } = req.body;
+    const userToken = req.headers.authorization?.replace(/^Bearer\s+/i, '');
+
+    if (!userId || !newPassword) {
+      return res.status(400).json({ success: false, error: 'البيانات غير مكتملة' });
+    }
+
+    try {
+      // 1. Update password via Supabase Auth
+      const updateRes = await supabaseRequest('/auth/v1/user', {
+        method: 'PUT',
+        token: userToken,
+        body: {
+          password: newPassword.trim(),
+          data: { must_change_password: false },
+        },
+      });
+
+      // Also update via service role to be completely certain
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        await supabaseRequest(`/auth/v1/admin/users/${userId}`, {
+          method: 'PUT',
+          useServiceRole: true,
+          body: {
+            password: newPassword.trim(),
+            user_metadata: { must_change_password: false },
+          },
+        });
+      }
+
+      // 2. Remove teacher from temporary set
+      teachersMustChangePasswordSet.delete(userId);
+
+      console.log(`✅ [API /api/admin/teacher-change-password] Password successfully updated for teacher: ${userId}`);
+
+      return res.json({
+        success: true,
+        message: 'تم تغيير كلمة المرور بنجاح!',
+      });
+    } catch (err: any) {
+      console.error('❌ [API /api/admin/teacher-change-password] Error:', err);
+      return res.status(500).json({ success: false, error: err.message || 'تعذر تغيير كلمة المرور' });
+    }
+  });
+
+  // 5.7 Promote existing user to Admin (Secured with Service Role Key and Auth metadata sync)
+  app.post('/api/admin/promote-admin', async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'البريد الإلكتروني مطلوب.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    try {
+      console.log(`👑 [API /api/admin/promote-admin] Promoting user to admin: ${cleanEmail}`);
+      
+      // 1. Look up profile using Service Role Key to bypass RLS
+      const profRes = await supabaseRequest(`/rest/v1/profiles?email=eq.${encodeURIComponent(cleanEmail)}&select=*`, {
+        useServiceRole: true,
+      });
+
+      if (!profRes.ok || !Array.isArray(profRes.data) || profRes.data.length === 0) {
+        console.warn(`⚠️ [API /api/admin/promote-admin] User not found with email: ${cleanEmail}`);
+        return res.status(404).json({
+          success: false,
+          error: `لم يتم العثور على حساب مسجل بالبريد الإلكتروني (${cleanEmail}). تأكد من تسجيل الحساب أولاً قبل ترقيته.`,
+        });
+      }
+
+      const user = profRes.data[0];
+      const userId = user.id;
+
+      // 2. Add to active admin sets immediately
+      adminUserIdsSet.add(userId);
+      adminEmailsSet.add(cleanEmail);
+
+      // 3. Update role to 'admin' in profiles table using Service Role Key
+      let profileUpdated = false;
+      const updateProfileRes = await supabaseRequest(`/rest/v1/profiles?id=eq.${userId}`, {
+        method: 'PATCH',
+        useServiceRole: true,
+        body: { role: 'admin' },
+      });
+
+      if (updateProfileRes.ok) {
+        profileUpdated = true;
+      } else {
+        console.warn(`⚠️ [API /api/admin/promote-admin] profiles_role_check or constraint notice:`, updateProfileRes.data?.message || updateProfileRes.data);
+      }
+
+      // 4. Synchronize role in Supabase Auth user metadata & app metadata via Admin API
+      let authMetadataUpdated = false;
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        const updateAuthRes = await supabaseRequest(`/auth/v1/admin/users/${userId}`, {
+          method: 'PUT',
+          useServiceRole: true,
+          body: {
+            app_metadata: { role: 'admin', is_admin: true },
+            user_metadata: { role: 'admin', is_admin: true },
+          },
+        });
+        if (updateAuthRes.ok) {
+          authMetadataUpdated = true;
+          console.log(`✅ [API /api/admin/promote-admin] Auth metadata successfully updated to admin for user ${userId}`);
+        } else {
+          console.warn(`⚠️ [API /api/admin/promote-admin] Auth metadata update warning:`, updateAuthRes.data);
+        }
+      }
+
+      console.log(`🎉 [API /api/admin/promote-admin] Successfully promoted ${cleanEmail} (ID: ${userId}) to admin!`);
+      return res.json({
+        success: true,
+        message: `تمت ترقية الحساب (${cleanEmail}) إلى دور مدير النظام بنجاح! يمكنك الآن تسجيل الدخول به للدخول فوراً إلى لوحة التحكم الإدارية.`,
+        profile: { ...user, role: 'admin' },
+      });
+    } catch (err: any) {
+      console.error(`❌ [API /api/admin/promote-admin] Server error:`, err);
+      return res.status(500).json({
+        success: false,
+        error: `حدث خطأ في الخادم أثناء الترقية: ${err.message || 'خطأ غير متوقع'}`,
+      });
+    }
   });
 
   // Health check

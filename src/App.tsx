@@ -12,6 +12,8 @@ import { Header } from './components/Navigation/Header';
 import { BottomNav } from './components/Navigation/BottomNav';
 import { TeacherBottomNav } from './components/TeacherBottomNav';
 import { TeacherStudentsPage } from './pages/TeacherStudentsPage';
+import { AdminDashboard } from './pages/AdminDashboard';
+import { TeacherChangePasswordModal } from './components/Teacher/TeacherChangePasswordModal';
 import { WeekDetailModal } from './components/Journey/WeekDetailModal';
 import { LessonPlayer } from './components/Lesson/LessonPlayer';
 import { ListeningTask } from './components/listening/ListeningTask';
@@ -38,6 +40,21 @@ const AppRouter: React.FC = () => {
   } = useSupabase();
 
   const [authView, setAuthView] = useState<'login' | 'signup'>('login');
+  const [teacherMustChangePw, setTeacherMustChangePw] = useState(false);
+
+  // Check if teacher must change temporary password
+  useEffect(() => {
+    if (profile?.role === 'teacher') {
+      const storedFlag = profile.id ? localStorage.getItem(`ward_teacher_must_change_pw_${profile.id}`) : null;
+      if (user?.mustChangePassword || profile?.must_change_password || storedFlag === 'true') {
+        setTeacherMustChangePw(true);
+      } else {
+        setTeacherMustChangePw(false);
+      }
+    } else {
+      setTeacherMustChangePw(false);
+    }
+  }, [profile, user]);
 
   // If user signs out or has no session, guarantee view is 'login'
   useEffect(() => {
@@ -78,7 +95,12 @@ const AppRouter: React.FC = () => {
     return <SignupPage onBackToLogin={() => setAuthView('login')} />;
   }
 
-  // Teacher Flow
+  // 1. Admin Flow (Protected for Admin role only - no student journey or teacher circles)
+  if (profile.role === 'admin') {
+    return <AdminDashboard />;
+  }
+
+  // 2. Teacher Flow
   if (profile.role === 'teacher') {
     return (
       <div className="min-h-screen bg-[#F8F9F5] text-slate-900 font-arabic flex flex-col antialiased">
@@ -107,6 +129,11 @@ const AppRouter: React.FC = () => {
           )}
         </main>
         <TeacherBottomNav />
+
+        {/* Mandatory Password Change Modal for new teachers created with temporary password */}
+        {teacherMustChangePw && (
+          <TeacherChangePasswordModal onSuccess={() => setTeacherMustChangePw(false)} />
+        )}
       </div>
     );
   }

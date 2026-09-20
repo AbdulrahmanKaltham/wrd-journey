@@ -127,7 +127,7 @@ export type OutfitColor = 'green' | 'gold' | 'navy';
 export type BagStyle = 'none' | 'satchel' | 'backpack';
 export type AccessoryStyle = 'quran' | 'seedling' | 'glasses';
 
-export type UserRole = 'teacher' | 'student';
+export type UserRole = 'teacher' | 'student' | 'admin';
 export type UserGender = 'male' | 'female';
 
 export interface Circle {
@@ -151,8 +151,9 @@ export interface UserProfile {
   name?: string;
   displayName: string;
   email?: string;
-  role: UserRole;              // معلم | طالب
+  role: UserRole;              // معلم | طالب | مدير
   gender: UserGender;          // ذكر | أنثى
+  mustChangePassword?: boolean;// إجبار المعلم على تغيير كلمة المرور عند أول دخول
   circleId?: string;           // معرف الحلقة
   teacherId?: string;          // معرف المعلم
   circleName?: string;         // اسم الحلقة الحالية

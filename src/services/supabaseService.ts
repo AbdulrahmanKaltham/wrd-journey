@@ -1377,4 +1377,190 @@ export const markHalaqahAbsentInDB = async (
   }
 };
 
+// ============================================================================
+// 16. Admin API Service Integrations (لوحة تحكم المدير والإحصائيات وإدارة المعلمين)
+// ============================================================================
+
+export interface AdminStatsData {
+  teachers: { total: number; male: number; female: number };
+  students: { total: number; male: number; female: number };
+  activeCirclesCount: number;
+  activeStudentsTodayCount: number;
+  totalRecordingsCount: number;
+  totalCompletedWeeksCount: number;
+  xpLast7Days: number;
+  newUsersLast7DaysCount: number;
+}
+
+export interface AdminChartsData {
+  newUsers30Days: Array<{ date: string; label: string; count: number }>;
+  circleStudentCounts: Array<{ id: string; name: string; studentsCount: number; gender: string }>;
+  studentsByWeek: Array<{ week: number; name: string; value: number }>;
+  recordings14Days: Array<{ date: string; label: string; count: number }>;
+}
+
+export interface AdminTeacherItem {
+  id: string;
+  name: string;
+  email: string;
+  gender: 'male' | 'female';
+  circleId: string | null;
+  circleName: string;
+  studentsCount: number;
+  createdAt: string;
+  isDeactivated?: boolean;
+  mustChangePassword?: boolean;
+}
+
+/**
+ * جلب إحصائيات لوحة تحكم المدير والرسوم البيانية
+ */
+export const fetchAdminStatsFromAPI = async (): Promise<{
+  success: boolean;
+  stats?: AdminStatsData;
+  charts?: AdminChartsData;
+  error?: string;
+}> => {
+  try {
+    const res = await fetch('/api/admin/stats');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { success: false, error: err.error || 'تعذر جلب الإحصائيات' };
+    }
+    const data = await res.json();
+    return { success: true, stats: data.stats, charts: data.charts };
+  } catch (err: any) {
+    console.error('❌ [fetchAdminStatsFromAPI] Error:', err);
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * جلب قائمة المعلمين وحلقاتهم وعدد طلابهم للمدير
+ */
+export const fetchAdminTeachersFromAPI = async (): Promise<{
+  success: boolean;
+  teachers?: AdminTeacherItem[];
+  error?: string;
+}> => {
+  try {
+    const res = await fetch('/api/admin/teachers');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return { success: false, error: err.error || 'تعذر جلب قائمة المعلمين' };
+    }
+    const data = await res.json();
+    return { success: true, teachers: data.teachers || [] };
+  } catch (err: any) {
+    console.error('❌ [fetchAdminTeachersFromAPI] Error:', err);
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * إضافة معلم جديد وإنشاء حلقته وتوليد كلمة مرور مؤقتة له
+ */
+export const createTeacherByAdmin = async (payload: {
+  name: string;
+  email: string;
+  gender: 'male' | 'female';
+  circleName?: string;
+}): Promise<{
+  success: boolean;
+  teacher?: any;
+  temporaryPassword?: string;
+  circle?: any;
+  error?: string;
+}> => {
+  try {
+    const res = await fetch('/api/admin/create-teacher', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'تعذر إنشاء المعلم' };
+    }
+    return {
+      success: true,
+      teacher: data.teacher,
+      temporaryPassword: data.temporaryPassword,
+      circle: data.circle,
+    };
+  } catch (err: any) {
+    console.error('❌ [createTeacherByAdmin] Error:', err);
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * إعادة توليد كلمة مرور مؤقتة لمعلم
+ */
+export const regenerateTeacherTempPassword = async (
+  teacherId: string,
+  teacherEmail: string
+): Promise<{ success: boolean; temporaryPassword?: string; error?: string }> => {
+  try {
+    const res = await fetch('/api/admin/regenerate-teacher-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacherId, teacherEmail }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'تعذر توليد كلمة المرور' };
+    }
+    return { success: true, temporaryPassword: data.temporaryPassword };
+  } catch (err: any) {
+    console.error('❌ [regenerateTeacherTempPassword] Error:', err);
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * تعطيل أو حذف حساب معلم وإلغاء تنشيط حلقاته
+ */
+export const deleteOrDeactivateTeacher = async (
+  teacherId: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const res = await fetch('/api/admin/delete-teacher', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacherId }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'تعذر تعطيل حساب المعلم' };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('❌ [deleteOrDeactivateTeacher] Error:', err);
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * ترقية حساب إلى مدير النظام
+ */
+export const promoteUserToAdminInAPI = async (
+  email: string
+): Promise<{ success: boolean; message?: string; error?: string }> => {
+  try {
+    const res = await fetch('/api/admin/promote-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'تعذر ترقية الحساب' };
+    }
+    return { success: true, message: data.message };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+};
+
 
