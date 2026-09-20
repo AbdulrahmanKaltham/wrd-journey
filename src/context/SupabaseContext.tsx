@@ -1387,49 +1387,33 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const joinCircleAction = async (code: string): Promise<{ success: boolean; message: string }> => {
     const studentId = supabaseAuthUser?.id || session?.user?.id || user.id || profile?.id;
     if (!studentId) {
-      return { success: false, message: 'يرجى تسجيل الدخول أولاً' };
+      return { success: false, message: 'يرجى تسجيل الدخول أولاً للانضمام إلى الحلقة' };
     }
 
     try {
-      console.log('🔗 [SupabaseContext] Joining circle with code/id:', code, 'for student:', studentId);
-      const res = await fetch('/api/circles/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId, circleCodeOrId: code.trim() }),
-      });
+      console.log('🔗 [SupabaseContext] Joining circle directly via Supabase SDK for student:', studentId, 'code:', code);
+      const { joinCircle } = await import('../services/supabaseService');
+      const res = await joinCircle(studentId, code.trim());
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        return { success: false, message: data.error || 'تعذر الانضمام للحلقة.' };
+      if (!res.success || !res.circle) {
+        return { success: false, message: res.message || 'تعذر الانضمام للحلقة.' };
       }
 
-      if (data.circle) {
-        const c = data.circle;
-        const mappedCircle: Circle = {
-          id: c.id,
-          name: c.name,
-          code: c.code || (c.id ? c.id.slice(0, 6).toUpperCase() : 'WRD-101'),
-          teacherId: c.teacher_id,
-          teacherName: c.teacher_name,
-          gender: c.gender,
-          studentIds: c.student_ids || [],
-          isActive: c.is_active !== false,
-          createdAt: c.created_at,
-        };
-        setUserCircle(mappedCircle);
-        setUser(prev => ({
-          ...prev,
-          circleId: c.id,
-          circleName: c.name,
-          teacherId: c.teacher_id,
-          teacherName: c.teacher_name,
-        }));
-        setProfile((prev: any) => (prev ? { ...prev, circle_id: c.id, teacher_id: c.teacher_id } : prev));
-      }
+      const c = res.circle;
+      // تحديث حالة الحلقة والمستخدم والملف الشخصي فوراً في الـ React State
+      setUserCircle(c);
+      setUser(prev => ({
+        ...prev,
+        circleId: c.id,
+        circleName: c.name,
+        teacherId: c.teacherId,
+        teacherName: c.teacherName,
+      }));
+      setProfile((prev: any) => (prev ? { ...prev, circle_id: c.id, teacher_id: c.teacherId } : prev));
 
       await fetchProfile(studentId);
       triggerCelebration();
-      return { success: true, message: data.message || 'تم الانضمام إلى الحلقة القرآنية بنجاح!' };
+      return { success: true, message: res.message || `تم الانضمام بنجاح إلى ${c.name}!` };
     } catch (err: any) {
       console.error('❌ [SupabaseContext] Error joining circle:', err);
       return { success: false, message: err.message || 'حدث خطأ أثناء الانضمام للحلقة.' };
@@ -1440,12 +1424,10 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const studentId = supabaseAuthUser?.id || session?.user?.id || user.id || profile?.id;
     if (studentId) {
       try {
-        console.log('👋 [SupabaseContext] Leaving current circle for student:', studentId);
-        await fetch('/api/circles/leave', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentId, circleId: userCircle?.id || user.circleId }),
-        });
+        const circleId = userCircle?.id || user.circleId || profile?.circle_id;
+        console.log('👋 [SupabaseContext] Leaving current circle directly via Supabase SDK for student:', studentId, 'circleId:', circleId);
+        const { leaveCircle } = await import('../services/supabaseService');
+        await leaveCircle(studentId, circleId);
 
         setUserCircle(null);
         setUser(prev => ({

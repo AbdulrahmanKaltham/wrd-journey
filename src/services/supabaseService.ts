@@ -279,77 +279,68 @@ export const syncProfileToSupabase = async (profile: any) => {
   }
 };
 
+export const DEFAULT_SYSTEM_CIRCLES: Circle[] = [
+  {
+    id: 'circ_male_101',
+    name: 'حلقة الإتقان والترتيل (بنين)',
+    code: 'WRD-101',
+    teacherId: 'teacher_ahmed',
+    teacherName: 'الشيخ د. أحمد المنشاوي',
+    gender: 'male',
+    studentIds: [],
+    isActive: true,
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'circ_male_102',
+    name: 'حلقة الفرقان لتحفيظ جزء عم (بنين)',
+    code: 'WRD-102',
+    teacherId: 'teacher_ibrahim',
+    teacherName: 'الشيخ إبراهيم السعدي',
+    gender: 'male',
+    studentIds: [],
+    isActive: true,
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'circ_female_201',
+    name: 'حلقة حافظات الفرقان (بنات)',
+    code: 'WRD-201',
+    teacherId: 'teacher_maryam',
+    teacherName: 'الأستاذة مريم الصالح',
+    gender: 'female',
+    studentIds: [],
+    isActive: true,
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'circ_female_202',
+    name: 'حلقة ترتيل القرآن الكريم (بنات)',
+    code: 'WRD-202',
+    teacherId: 'teacher_fatima',
+    teacherName: 'الأستاذة فاطمة الزهراء',
+    gender: 'female',
+    studentIds: [],
+    isActive: true,
+    createdAt: '2025-01-01T00:00:00.000Z',
+  },
+];
+
 /**
  * 4. الحصول على الحلقات المتاحة للطلاب
  */
 export const getAvailableCircles = async (gender?: 'male' | 'female'): Promise<Circle[]> => {
   console.log('🔍 [supabaseService] Fetching available circles for gender:', gender);
-  const DEFAULT_FALLBACK_CIRCLES: Circle[] = [
-    {
-      id: 'circ_male_101',
-      name: 'حلقة الإتقان والترتيل (بنين)',
-      code: 'WRD-101',
-      teacherId: 'teacher_ahmed',
-      teacherName: 'الشيخ د. أحمد المنشاوي',
-      gender: 'male',
-      studentIds: [],
-      isActive: true,
-      createdAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-      id: 'circ_male_102',
-      name: 'حلقة الفرقان لتحفيظ جزء عم (بنين)',
-      code: 'WRD-102',
-      teacherId: 'teacher_ibrahim',
-      teacherName: 'الشيخ إبراهيم السعدي',
-      gender: 'male',
-      studentIds: [],
-      isActive: true,
-      createdAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-      id: 'circ_female_201',
-      name: 'حلقة حافظات الفرقان (بنات)',
-      code: 'WRD-201',
-      teacherId: 'teacher_maryam',
-      teacherName: 'الأستاذة مريم الصالح',
-      gender: 'female',
-      studentIds: [],
-      isActive: true,
-      createdAt: '2025-01-01T00:00:00.000Z',
-    },
-    {
-      id: 'circ_female_202',
-      name: 'حلقة ترتيل القرآن الكريم (بنات)',
-      code: 'WRD-202',
-      teacherId: 'teacher_fatima',
-      teacherName: 'الأستاذة فاطمة الزهراء',
-      gender: 'female',
-      studentIds: [],
-      isActive: true,
-      createdAt: '2025-01-01T00:00:00.000Z',
-    },
-  ];
 
   try {
-    // 1. First try API Proxy
-    const res = await fetch(`/api/circles/available${gender ? `?gender=${gender}` : ''}`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && Array.isArray(json.circles) && json.circles.length > 0) {
-        console.log('✅ [supabaseService] Available circles loaded from API proxy:', json.circles);
-        return json.circles;
-      }
-    }
-
-    // 2. Direct Supabase query as fallback
+    // 1. استعلام Supabase المباشر أولاً (يعمل دائماً على الاستضافة الثابتة و GitHub Pages)
     let query = supabase.from('circles').select('*');
     if (gender) {
       query = query.eq('gender', gender);
     }
     const { data, error } = await query;
     if (!error && Array.isArray(data) && data.length > 0) {
-      console.log('✅ [supabaseService] Available circles loaded from Supabase:', data);
+      console.log('✅ [supabaseService] Available circles loaded from Supabase:', data.length);
       return data
         .filter(c => c.is_active !== false)
         .map(c => ({
@@ -365,11 +356,25 @@ export const getAvailableCircles = async (gender?: 'male' | 'female'): Promise<C
         }));
     }
   } catch (err) {
-    console.warn('⚠️ [supabaseService] Error in getAvailableCircles:', err);
+    console.warn('⚠️ [supabaseService] Direct Supabase circles query error:', err);
   }
 
-  // 3. Fallback to default circles for gender
-  return DEFAULT_FALLBACK_CIRCLES.filter(c => !gender || c.gender === gender);
+  // 2. محاولة الخادم الاختيارية مع التحقق من نوع المحتوى (لتجنب أخطاء 404 HTML في GitHub Pages)
+  try {
+    const res = await fetch(`/api/circles/available${gender ? `?gender=${gender}` : ''}`);
+    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.circles) && json.circles.length > 0) {
+        console.log('✅ [supabaseService] Available circles loaded from API proxy:', json.circles);
+        return json.circles;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('⚠️ [supabaseService] Optional API proxy check skipped:', apiErr);
+  }
+
+  // 3. الحلقات الافتراضية المعتمدة للجنس المختار
+  return DEFAULT_SYSTEM_CIRCLES.filter(c => !gender || c.gender === gender);
 };
 
 // In-memory cache with short TTL (10 seconds) for ultra-fast instant UI rendering
