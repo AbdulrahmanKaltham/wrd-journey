@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useSupabase } from '../context/SupabaseContext';
 import {
-  fetchAdminStatsFromAPI,
-  fetchAdminTeachersFromAPI,
+  fetchAdminStatsFromSupabase,
+  fetchAdminTeachersFromSupabase,
   createTeacherByAdmin,
   regenerateTeacherTempPassword,
   deleteOrDeactivateTeacher,
@@ -38,6 +38,7 @@ import {
   Clock,
   UserCheck,
   FolderLock,
+  Database,
 } from 'lucide-react';
 import {
   LineChart,
@@ -96,14 +97,14 @@ export const AdminDashboard: React.FC = () => {
     else if (activeTab === 'admin_add_teacher') setCurrentSection('add_teacher');
   }, [activeTab]);
 
-  // Load Admin Data
+  // Load Admin Data directly from Supabase (Client-Side)
   const loadData = async () => {
     setLoadingStats(true);
     setLoadingTeachers(true);
     try {
       const [statsRes, teachersRes] = await Promise.all([
-        fetchAdminStatsFromAPI(),
-        fetchAdminTeachersFromAPI(),
+        fetchAdminStatsFromSupabase(),
+        fetchAdminTeachersFromSupabase(),
       ]);
 
       if (statsRes.success && statsRes.stats) {
@@ -114,7 +115,7 @@ export const AdminDashboard: React.FC = () => {
         setTeachers(teachersRes.teachers);
       }
     } catch (err) {
-      console.error('Error loading admin data:', err);
+      console.error('Error loading admin data directly from Supabase:', err);
     } finally {
       setLoadingStats(false);
       setLoadingTeachers(false);
@@ -254,6 +255,10 @@ export const AdminDashboard: React.FC = () => {
                 </h1>
                 <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black px-2 py-0.5 rounded-md">
                   مدير النظام (Admin)
+                </span>
+                <span className="bg-emerald-50 text-[#006304] border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-md hidden sm:flex items-center gap-1">
+                  <Database className="w-3 h-3 text-[#006304]" />
+                  مباشر من Supabase
                 </span>
               </div>
               <p className="text-[11px] text-gray-500 font-medium">
@@ -851,6 +856,23 @@ export const AdminDashboard: React.FC = () => {
                   <p className="text-xs text-gray-500 font-medium">
                     سيتم إنشاء حساب المعلم، وحلقته القرآنية، وتوليد كلمة مرور مؤقتة له تلقائياً.
                   </p>
+                </div>
+              </div>
+
+              {/* Notice for GitHub Pages & Static Hosting */}
+              <div className="mb-5 p-4 bg-amber-50/90 border-2 border-amber-200 rounded-2xl text-xs space-y-2">
+                <div className="flex items-center gap-2 font-black text-amber-950 text-sm">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>ملاحظة الاستضافة على GitHub Pages:</span>
+                </div>
+                <p className="text-amber-800 leading-relaxed">
+                  كافة الإحصائيات وقوائم المعلمين والطلاب وتوزيع الحلقات تُجلب وتُعرض مباشرةً من Supabase. أما إنشاء حسابات المعلمين وتوليد كلمات المرور فتتطلب صلاحيات مفتاح الخدمة الإداري (Service Role Key)، وتتم بأمان وسرعة من لوحة تحكم <strong>Supabase &gt; Authentication &gt; Users</strong> دون كشف المفتاح السري في المتصفح.
+                </p>
+                <div className="bg-white/80 p-3 rounded-xl border border-amber-200 text-[11px] text-slate-700 space-y-1">
+                  <div className="font-bold text-slate-900">خطوات إضافة معلم جديد عبر لوحة Supabase:</div>
+                  <div>1. في مشروعك في Supabase: اذهب إلى <strong>Authentication → Users → Add User</strong> وأدخل بريد المعلم وكلمة المرور.</div>
+                  <div>2. في جدول <strong>profiles</strong>: عدّل قيمة <strong>role</strong> إلى <code>teacher</code> وحدد الجنس <code>male</code> أو <code>female</code>.</div>
+                  <div>3. سيظهر المعلم فوراً في لوحة الإدارة هنا وتُحسب كافة إحصائياته تلقائياً!</div>
                 </div>
               </div>
 

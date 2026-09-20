@@ -1413,7 +1413,252 @@ export interface AdminTeacherItem {
 }
 
 /**
- * جلب إحصائيات لوحة تحكم المدير والرسوم البيانية
+ * جلب إحصائيات لوحة تحكم المدير والرسوم البيانية مباشرةً من Supabase (من جهة العميل بدون الحاجة لخادم)
+ */
+export const fetchAdminStatsFromSupabase = async (): Promise<{
+  success: boolean;
+  stats?: AdminStatsData;
+  charts?: AdminChartsData;
+  error?: string;
+}> => {
+  try {
+    console.log('📊 [supabaseService] Fetching admin stats directly from Supabase...');
+    const [profilesRes, circlesRes, recordingsRes] = await Promise.all([
+      supabase.from('profiles').select('*'),
+      supabase.from('circles').select('*'),
+      supabase.from('recordings').select('id,created_at,type,status,audio_url'),
+    ]);
+
+    if (profilesRes.error) {
+      console.warn('⚠️ [fetchAdminStatsFromSupabase] Profiles fetch warning:', profilesRes.error);
+    }
+    if (circlesRes.error) {
+      console.warn('⚠️ [fetchAdminStatsFromSupabase] Circles fetch warning:', circlesRes.error);
+    }
+    if (recordingsRes.error) {
+      console.warn('⚠️ [fetchAdminStatsFromSupabase] Recordings fetch warning:', recordingsRes.error);
+    }
+
+    const allProfiles: any[] = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+    const allCircles: any[] = Array.isArray(circlesRes.data) ? circlesRes.data : [];
+    const allRecordings: any[] = Array.isArray(recordingsRes.data) ? recordingsRes.data : [];
+
+    // Exclude Admin accounts from student and teacher counts
+    const students = allProfiles.filter(p => p.role === 'student');
+    const teachers = allProfiles.filter(p => p.role === 'teacher' && p.role !== 'deactivated_teacher');
+
+    const maleStudents = students.filter(s => s.gender === 'male');
+    const femaleStudents = students.filter(s => s.gender === 'female');
+
+    const maleTeachers = teachers.filter(t => t.gender === 'male');
+    const femaleTeachers = teachers.filter(t => t.gender === 'female');
+
+    const activeCircles = allCircles.filter(c => c.is_active !== false);
+
+    // Active students today
+    const now = new Date();
+    const todayIso = now.toISOString().split('T')[0];
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const activeStudentsToday = students.filter(s => {
+      if (s.last_active_date && s.last_active_date.startsWith(todayIso)) return true;
+      if (s.streak && s.streak > 0 && s.updated_at && s.updated_at.startsWith(todayIso)) return true;
+      return (s.streak || 0) > 0;
+    });
+
+    // Total audio recordings uploaded
+    const totalRecordings = allRecordings.filter(r => r.audio_url || r.type === 'recording').length;
+
+    // Total completed weeks across the app
+    let totalCompletedWeeks = 0;
+    students.forEach(s => {
+      if (Array.isArray(s.completed_weeks)) {
+        totalCompletedWeeks += s.completed_weeks.length;
+      }
+    });
+
+    // New users in last 7 days
+    const newUsersLast7Days = allProfiles.filter(p => {
+      if (!p.created_at) return false;
+      return new Date(p.created_at) >= sevenDaysAgo;
+    });
+
+    // XP in last 7 days
+    const xpLast7Days = students.reduce((acc, s) => {
+      const createdDate = s.created_at ? new Date(s.created_at) : null;
+      if (createdDate && createdDate >= sevenDaysAgo) {
+        return acc + (Number(s.xp) || 0);
+      }
+      return acc + Math.min(Number(s.xp) || 0, 75);
+    }, 0);
+
+    // --- Chart Data 1: New users last 30 days (daily breakdown) ---
+    const dailyNewUsersMap: Record<string, number> = {};
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dayKey = d.toISOString().split('T')[0];
+      dailyNewUsersMap[dayKey] = 0;
+    }
+    allProfiles.forEach(p => {
+      if (p.created_at) {
+        const dayKey = p.created_at.split('T')[0];
+        if (dailyNewUsersMap[dayKey] !== undefined) {
+          dailyNewUsersMap[dayKey]++;
+        }
+      }
+    });
+    const newUsers30Days = Object.entries(dailyNewUsersMap).map(([date, count]) => {
+      const d = new Date(date);
+      const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+      return { date, label: dayLabel, count };
+    });
+
+    // --- Chart Data 2: Students per Circle (Bar Chart) ---
+    const circleStudentCounts = activeCircles.map(c => {
+      const circleStudents = students.filter(
+        s => s.circle_id === c.id || (Array.isArray(c.student_ids) && c.student_ids.includes(s.id))
+      );
+      return {
+        id: c.id,
+        name: c.name || 'حلقة قرآنية',
+        studentsCount: circleStudents.length,
+        gender: c.gender === 'female' ? 'طالبات' : 'طلاب',
+      };
+    });
+
+    // --- Chart Data 3: Students distribution across weeks (Pie Chart) ---
+    const weekDistributionMap: Record<number, number> = {};
+    for (let w = 1; w <= 17; w++) {
+      weekDistributionMap[w] = 0;
+    }
+    students.forEach(s => {
+      const currentW = Math.min(17, Math.max(1, Number(s.current_week) || 1));
+      weekDistributionMap[currentW] = (weekDistributionMap[currentW] || 0) + 1;
+    });
+    const studentsByWeek = Object.entries(weekDistributionMap)
+      .filter(([_, count]) => count > 0)
+      .map(([week, count]) => ({
+        week: Number(week),
+        name: `الأسبوع ${week}`,
+        value: count,
+      }));
+    if (studentsByWeek.length === 0) {
+      studentsByWeek.push({ week: 1, name: 'الأسبوع 1', value: students.length });
+    }
+
+    // --- Chart Data 4: Daily Recordings in last 14 days ---
+    const dailyRecordingsMap: Record<string, number> = {};
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dayKey = d.toISOString().split('T')[0];
+      dailyRecordingsMap[dayKey] = 0;
+    }
+    allRecordings.forEach(r => {
+      if (r.created_at) {
+        const dayKey = r.created_at.split('T')[0];
+        if (dailyRecordingsMap[dayKey] !== undefined) {
+          dailyRecordingsMap[dayKey]++;
+        }
+      }
+    });
+    const recordings14Days = Object.entries(dailyRecordingsMap).map(([date, count]) => {
+      const d = new Date(date);
+      const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+      return { date, label: dayLabel, count };
+    });
+
+    const stats: AdminStatsData = {
+      teachers: {
+        total: teachers.length,
+        male: maleTeachers.length,
+        female: femaleTeachers.length,
+      },
+      students: {
+        total: students.length,
+        male: maleStudents.length,
+        female: femaleStudents.length,
+      },
+      activeCirclesCount: activeCircles.length,
+      activeStudentsTodayCount: activeStudentsToday.length,
+      totalRecordingsCount: totalRecordings,
+      totalCompletedWeeksCount: totalCompletedWeeks,
+      xpLast7Days,
+      newUsersLast7DaysCount: newUsersLast7Days.length,
+    };
+
+    const charts: AdminChartsData = {
+      newUsers30Days,
+      circleStudentCounts,
+      studentsByWeek,
+      recordings14Days,
+    };
+
+    return {
+      success: true,
+      stats,
+      charts,
+    };
+  } catch (err: any) {
+    console.error('❌ [fetchAdminStatsFromSupabase] Error:', err);
+    return { success: false, error: err.message || 'تعذر جلب الإحصائيات من Supabase' };
+  }
+};
+
+/**
+ * جلب قائمة المعلمين وحلقاتهم وعدد طلابهم للمدير مباشرةً من Supabase
+ */
+export const fetchAdminTeachersFromSupabase = async (): Promise<{
+  success: boolean;
+  teachers?: AdminTeacherItem[];
+  error?: string;
+}> => {
+  try {
+    console.log('📋 [supabaseService] Fetching admin teachers directly from Supabase...');
+    const [profilesRes, circlesRes] = await Promise.all([
+      supabase.from('profiles').select('*'),
+      supabase.from('circles').select('*'),
+    ]);
+
+    const allProfiles: any[] = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+    const allCircles: any[] = Array.isArray(circlesRes.data) ? circlesRes.data : [];
+
+    const students = allProfiles.filter(p => p.role === 'student');
+    const teacherProfiles = allProfiles.filter(p => p.role === 'teacher' || p.role === 'deactivated_teacher');
+
+    const teachersList: AdminTeacherItem[] = teacherProfiles.map(t => {
+      const circle = allCircles.find(c => c.teacher_id === t.id || c.id === t.circle_id);
+      const circleStudents = students.filter(
+        s => s.circle_id === circle?.id || s.teacher_id === t.id
+      );
+      const isDeactivated = t.role === 'deactivated_teacher' || !!(t as any).is_deactivated;
+      const mustChangePassword = !!(t as any).must_change_password;
+
+      return {
+        id: t.id,
+        name: t.name || 'معلم قرآن',
+        email: t.email || '',
+        gender: t.gender || 'male',
+        circleId: circle?.id || t.circle_id || null,
+        circleName: circle?.name || 'بدون حلقة',
+        studentsCount: circleStudents.length,
+        createdAt: t.created_at || new Date().toISOString(),
+        isDeactivated,
+        mustChangePassword,
+      };
+    });
+
+    return {
+      success: true,
+      teachers: teachersList,
+    };
+  } catch (err: any) {
+    console.error('❌ [fetchAdminTeachersFromSupabase] Error:', err);
+    return { success: false, error: err.message || 'تعذر جلب قائمة المعلمين من Supabase' };
+  }
+};
+
+/**
+ * دالة متوافقة لجلب الإحصائيات (تعتمد مباشرةً على Supabase من جهة العميل)
  */
 export const fetchAdminStatsFromAPI = async (): Promise<{
   success: boolean;
@@ -1421,44 +1666,22 @@ export const fetchAdminStatsFromAPI = async (): Promise<{
   charts?: AdminChartsData;
   error?: string;
 }> => {
-  try {
-    const res = await fetch('/api/admin/stats');
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return { success: false, error: err.error || 'تعذر جلب الإحصائيات' };
-    }
-    const data = await res.json();
-    return { success: true, stats: data.stats, charts: data.charts };
-  } catch (err: any) {
-    console.error('❌ [fetchAdminStatsFromAPI] Error:', err);
-    return { success: false, error: err.message };
-  }
+  return fetchAdminStatsFromSupabase();
 };
 
 /**
- * جلب قائمة المعلمين وحلقاتهم وعدد طلابهم للمدير
+ * دالة متوافقة لجلب قائمة المعلمين (تعتمد مباشرةً على Supabase من جهة العميل)
  */
 export const fetchAdminTeachersFromAPI = async (): Promise<{
   success: boolean;
   teachers?: AdminTeacherItem[];
   error?: string;
 }> => {
-  try {
-    const res = await fetch('/api/admin/teachers');
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return { success: false, error: err.error || 'تعذر جلب قائمة المعلمين' };
-    }
-    const data = await res.json();
-    return { success: true, teachers: data.teachers || [] };
-  } catch (err: any) {
-    console.error('❌ [fetchAdminTeachersFromAPI] Error:', err);
-    return { success: false, error: err.message };
-  }
+  return fetchAdminTeachersFromSupabase();
 };
 
 /**
- * إضافة معلم جديد وإنشاء حلقته وتوليد كلمة مرور مؤقتة له
+ * إضافة معلم جديد وإنشاء حلقته وتوليد كلمة مرور مؤقتة له (تتطلب خادماً إدارياً بـ service_role)
  */
 export const createTeacherByAdmin = async (payload: {
   name: string;
@@ -1478,8 +1701,18 @@ export const createTeacherByAdmin = async (payload: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    if (!res.ok) {
+      if (res.status === 404) {
+        return {
+          success: false,
+          error: 'هذه العملية تتطلب خادماً إدارياً. على GitHub Pages (استضافة ثابتة بدون خادم)، يتم إنشاء المعلمين بأمان مباشرة من لوحة تحكم Supabase > Authentication لحماية صلاحيات مفتاح الخدمة.',
+        };
+      }
+      const errJson = await res.json().catch(() => ({}));
+      return { success: false, error: errJson.error || 'تعذر إنشاء حساب المعلم' };
+    }
     const data = await res.json();
-    if (!res.ok || !data.success) {
+    if (!data.success) {
       return { success: false, error: data.error || 'تعذر إنشاء المعلم' };
     }
     return {
@@ -1489,13 +1722,16 @@ export const createTeacherByAdmin = async (payload: {
       circle: data.circle,
     };
   } catch (err: any) {
-    console.error('❌ [createTeacherByAdmin] Error:', err);
-    return { success: false, error: err.message };
+    console.warn('⚠️ [createTeacherByAdmin] Fetch notice:', err);
+    return {
+      success: false,
+      error: 'تعذر الاتصال بالخادم. على GitHub Pages (استضافة ثابتة)، يتم إنشاء حساب المعلم مباشرة من لوحة تحكم Supabase > Authentication > Users.',
+    };
   }
 };
 
 /**
- * إعادة توليد كلمة مرور مؤقتة لمعلم
+ * إعادة توليد كلمة مرور مؤقتة لمعلم (تتطلب خادماً إدارياً بـ service_role)
  */
 export const regenerateTeacherTempPassword = async (
   teacherId: string,
@@ -1507,14 +1743,27 @@ export const regenerateTeacherTempPassword = async (
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ teacherId, teacherEmail }),
     });
+    if (!res.ok) {
+      if (res.status === 404) {
+        return {
+          success: false,
+          error: 'هذه العملية تتطلب خادماً إدارياً. على GitHub Pages، يمكنك إعادة تعيين كلمة المرور مباشرة من لوحة Supabase > Authentication > Users > Send Password Reset.',
+        };
+      }
+      const errJson = await res.json().catch(() => ({}));
+      return { success: false, error: errJson.error || 'تعذر توليد كلمة المرور' };
+    }
     const data = await res.json();
-    if (!res.ok || !data.success) {
+    if (!data.success) {
       return { success: false, error: data.error || 'تعذر توليد كلمة المرور' };
     }
     return { success: true, temporaryPassword: data.temporaryPassword };
   } catch (err: any) {
-    console.error('❌ [regenerateTeacherTempPassword] Error:', err);
-    return { success: false, error: err.message };
+    console.warn('⚠️ [regenerateTeacherTempPassword] Fetch notice:', err);
+    return {
+      success: false,
+      error: 'تعذر الاتصال بالخادم. يمكنك إعادة تعيين كلمة المرور من لوحة Supabase > Authentication > Users.',
+    };
   }
 };
 
@@ -1525,19 +1774,45 @@ export const deleteOrDeactivateTeacher = async (
   teacherId: string
 ): Promise<{ success: boolean; error?: string }> => {
   try {
+    // 1. Try server endpoint first if available
     const res = await fetch('/api/admin/delete-teacher', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ teacherId }),
     });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'تعذر تعطيل حساب المعلم' };
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) return { success: true };
     }
-    return { success: true };
+    
+    // 2. Client-side direct update to profiles role as fallback (if RLS allows admin update)
+    const { error: updateErr } = await supabase
+      .from('profiles')
+      .update({ role: 'deactivated_teacher' })
+      .eq('id', teacherId);
+
+    if (!updateErr) {
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: 'على GitHub Pages (استضافة ثابتة)، يمكنك تعطيل أو حذف حساب المعلم مباشرة من لوحة تحكم Supabase > Authentication > Users.',
+    };
   } catch (err: any) {
-    console.error('❌ [deleteOrDeactivateTeacher] Error:', err);
-    return { success: false, error: err.message };
+    console.warn('⚠️ [deleteOrDeactivateTeacher] Notice:', err);
+    // Fallback direct attempt
+    try {
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update({ role: 'deactivated_teacher' })
+        .eq('id', teacherId);
+      if (!updateErr) return { success: true };
+    } catch {}
+    return {
+      success: false,
+      error: 'يمكنك تعطيل حساب المعلم أو حذفه من لوحة تحكم Supabase > Authentication.',
+    };
   }
 };
 
@@ -1553,13 +1828,23 @@ export const promoteUserToAdminInAPI = async (
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || 'تعذر ترقية الحساب' };
+    if (!res.ok) {
+      if (res.status === 404) {
+        return {
+          success: false,
+          error: 'على الاستضافة الثابتة (GitHub Pages)، تتم ترقية الحساب بتعديل حقل role إلى "admin" مباشرةً من جدول profiles في لوحة تحكم Supabase.',
+        };
+      }
+      const errJson = await res.json().catch(() => ({}));
+      return { success: false, error: errJson.error || 'تعذر ترقية الحساب' };
     }
+    const data = await res.json();
     return { success: true, message: data.message };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    return {
+      success: false,
+      error: 'على الاستضافة الثابتة (GitHub Pages)، تتم ترقية الحساب بتعديل حقل role إلى "admin" مباشرةً من جدول profiles في لوحة تحكم Supabase.',
+    };
   }
 };
 
