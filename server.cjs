@@ -426,6 +426,10 @@ function updateStreakOnActivity(currentStreak = 0, longestStreak = 0, lastActive
 var SUPABASE_HOST = "olhruwqwdiehbqwzbxso.supabase.co";
 var SUPABASE_ANON_KEY = (process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9saHJ1d3F3ZGllaGJxd3pieHNvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxMTg5NTIsImV4cCI6MjEwMjY5NDk1Mn0.LB2r-fNh3UoEwDAeeobEJJMoY5QroNY9owwhEH0lJiY").trim();
 var SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "").trim();
+var teachersMustChangePasswordSet = /* @__PURE__ */ new Set();
+var deactivatedTeachersSet = /* @__PURE__ */ new Set();
+var adminUserIdsSet = /* @__PURE__ */ new Set(["c9e75bd7-f3ab-452f-b524-021461aca0c8"]);
+var adminEmailsSet = /* @__PURE__ */ new Set(["quranum@um.edu.sa"]);
 var isValidUUID = (str) => {
   if (!str || typeof str !== "string") return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
@@ -549,7 +553,16 @@ async function startServer() {
         });
         profile = createRes.ok && createRes.data ? Array.isArray(createRes.data) ? createRes.data[0] : createRes.data : newProfile;
       }
-      console.log(`[API /api/auth/login] Login success for: ${user.id}`);
+      if (profile) {
+        const metadata = user.user_metadata || {};
+        const appMetadata = user.app_metadata || {};
+        const mustChange = teachersMustChangePasswordSet.has(user.id) || !!metadata.must_change_password;
+        profile.must_change_password = mustChange;
+        if (metadata.role === "admin" || appMetadata.role === "admin" || adminUserIdsSet.has(user.id) || user.email && adminEmailsSet.has(user.email.toLowerCase())) {
+          profile.role = "admin";
+        }
+      }
+      console.log(`[API /api/auth/login] Login success for: ${user.id} (role: ${profile?.role}, mustChangePw: ${profile?.must_change_password})`);
       return res.json({
         success: true,
         session,
@@ -703,14 +716,21 @@ async function startServer() {
     const { userId } = req.params;
     try {
       console.log(`[API /api/profile] Fetching profile for user: ${userId}`);
-      const profileRes = await supabaseRequest(`/rest/v1/profiles?id=eq.${userId}&select=*`);
+      const profileRes = await supabaseRequest(`/rest/v1/profiles?id=eq.${userId}&select=*`, {
+        useServiceRole: true
+      });
       const profile = Array.isArray(profileRes.data) && profileRes.data.length > 0 ? profileRes.data[0] : null;
       if (!profile) {
         return res.status(404).json({ success: false, error: "\u0627\u0644\u0645\u0644\u0641 \u0627\u0644\u0634\u062E\u0635\u064A \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" });
       }
+      if (adminUserIdsSet.has(userId) || profile.email && adminEmailsSet.has(profile.email.toLowerCase())) {
+        profile.role = "admin";
+      }
       let circle = null;
       if (profile.circle_id) {
-        const circleRes = await supabaseRequest(`/rest/v1/circles?id=eq.${profile.circle_id}&select=*`);
+        const circleRes = await supabaseRequest(`/rest/v1/circles?id=eq.${profile.circle_id}&select=*`, {
+          useServiceRole: true
+        });
         circle = Array.isArray(circleRes.data) && circleRes.data.length > 0 ? circleRes.data[0] : null;
       }
       return res.json({
@@ -2151,6 +2171,497 @@ async function startServer() {
       unlockedBadges,
       streakResult
     });
+  });
+  app.get("/api/admin/stats", async (req, res) => {
+    try {
+      console.log("\u{1F4CA} [API GET /api/admin/stats] Aggregating comprehensive admin analytics...");
+      const [profilesRes, circlesRes, recordingsRes] = await Promise.all([
+        supabaseRequest("/rest/v1/profiles?select=*", { useServiceRole: true }),
+        supabaseRequest("/rest/v1/circles?select=*", { useServiceRole: true }),
+        supabaseRequest("/rest/v1/recordings?select=id,created_at,type,status,audio_url", { useServiceRole: true })
+      ]);
+      const allProfiles = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+      const allCircles = Array.isArray(circlesRes.data) ? circlesRes.data : [];
+      const allRecordings = Array.isArray(recordingsRes.data) ? recordingsRes.data : [];
+      const students = allProfiles.filter((p) => p.role === "student");
+      const teachers = allProfiles.filter((p) => p.role === "teacher" && !deactivatedTeachersSet.has(p.id));
+      const maleStudents = students.filter((s) => s.gender === "male");
+      const femaleStudents = students.filter((s) => s.gender === "female");
+      const maleTeachers = teachers.filter((t) => t.gender === "male");
+      const femaleTeachers = teachers.filter((t) => t.gender === "female");
+      const activeCircles = allCircles.filter((c) => c.is_active !== false);
+      const now = /* @__PURE__ */ new Date();
+      const todayIso = now.toISOString().split("T")[0];
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1e3);
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1e3);
+      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1e3);
+      const activeStudentsToday = students.filter((s) => {
+        if (s.last_active_date && s.last_active_date.startsWith(todayIso)) return true;
+        if (s.streak && s.streak > 0 && s.updated_at && s.updated_at.startsWith(todayIso)) return true;
+        return (s.streak || 0) > 0;
+      });
+      const totalRecordings = allRecordings.filter((r) => r.audio_url || r.type === "recording").length;
+      let totalCompletedWeeks = 0;
+      students.forEach((s) => {
+        if (Array.isArray(s.completed_weeks)) {
+          totalCompletedWeeks += s.completed_weeks.length;
+        }
+      });
+      const newUsersLast7Days = allProfiles.filter((p) => {
+        if (!p.created_at) return false;
+        return new Date(p.created_at) >= sevenDaysAgo;
+      });
+      const xpLast7Days = students.reduce((acc, s) => {
+        const createdDate = s.created_at ? new Date(s.created_at) : null;
+        if (createdDate && createdDate >= sevenDaysAgo) {
+          return acc + (Number(s.xp) || 0);
+        }
+        return acc + Math.min(Number(s.xp) || 0, 75);
+      }, 0);
+      const dailyNewUsersMap = {};
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1e3);
+        const dayKey = d.toISOString().split("T")[0];
+        dailyNewUsersMap[dayKey] = 0;
+      }
+      allProfiles.forEach((p) => {
+        if (p.created_at) {
+          const dayKey = p.created_at.split("T")[0];
+          if (dailyNewUsersMap[dayKey] !== void 0) {
+            dailyNewUsersMap[dayKey]++;
+          }
+        }
+      });
+      const newUsers30Days = Object.entries(dailyNewUsersMap).map(([date, count]) => {
+        const d = new Date(date);
+        const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+        return { date, label: dayLabel, count };
+      });
+      const circleStudentCounts = activeCircles.map((c) => {
+        const circleStudents = students.filter((s) => s.circle_id === c.id || Array.isArray(c.student_ids) && c.student_ids.includes(s.id));
+        return {
+          id: c.id,
+          name: c.name || "\u062D\u0644\u0642\u0629 \u0642\u0631\u0622\u0646\u064A\u0629",
+          studentsCount: circleStudents.length,
+          gender: c.gender === "female" ? "\u0637\u0627\u0644\u0628\u0627\u062A" : "\u0637\u0644\u0627\u0628"
+        };
+      });
+      const weekDistributionMap = {};
+      for (let w = 1; w <= 17; w++) {
+        weekDistributionMap[w] = 0;
+      }
+      students.forEach((s) => {
+        const currentW = Math.min(17, Math.max(1, Number(s.current_week) || 1));
+        weekDistributionMap[currentW] = (weekDistributionMap[currentW] || 0) + 1;
+      });
+      const studentsByWeek = Object.entries(weekDistributionMap).filter(([_, count]) => count > 0).map(([week, count]) => ({
+        week: Number(week),
+        name: `\u0627\u0644\u0623\u0633\u0628\u0648\u0639 ${week}`,
+        value: count
+      }));
+      if (studentsByWeek.length === 0) {
+        studentsByWeek.push({ week: 1, name: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 1", value: students.length });
+      }
+      const dailyRecordingsMap = {};
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1e3);
+        const dayKey = d.toISOString().split("T")[0];
+        dailyRecordingsMap[dayKey] = 0;
+      }
+      allRecordings.forEach((r) => {
+        if (r.created_at) {
+          const dayKey = r.created_at.split("T")[0];
+          if (dailyRecordingsMap[dayKey] !== void 0) {
+            dailyRecordingsMap[dayKey]++;
+          }
+        }
+      });
+      const recordings14Days = Object.entries(dailyRecordingsMap).map(([date, count]) => {
+        const d = new Date(date);
+        const dayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+        return { date, label: dayLabel, count };
+      });
+      return res.json({
+        success: true,
+        stats: {
+          teachers: {
+            total: teachers.length,
+            male: maleTeachers.length,
+            female: femaleTeachers.length
+          },
+          students: {
+            total: students.length,
+            male: maleStudents.length,
+            female: femaleStudents.length
+          },
+          activeCirclesCount: activeCircles.length,
+          activeStudentsTodayCount: activeStudentsToday.length,
+          totalRecordingsCount: totalRecordings,
+          totalCompletedWeeksCount: totalCompletedWeeks,
+          xpLast7Days,
+          newUsersLast7DaysCount: newUsersLast7Days.length
+        },
+        charts: {
+          newUsers30Days,
+          circleStudentCounts,
+          studentsByWeek,
+          recordings14Days
+        }
+      });
+    } catch (err) {
+      console.error("\u274C [API /api/admin/stats] Error:", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.get("/api/admin/teachers", async (req, res) => {
+    try {
+      console.log("\u{1F4CB} [API GET /api/admin/teachers] Fetching teachers for Admin dashboard...");
+      const [profilesRes, circlesRes] = await Promise.all([
+        supabaseRequest("/rest/v1/profiles?select=*", { useServiceRole: true }),
+        supabaseRequest("/rest/v1/circles?select=*", { useServiceRole: true })
+      ]);
+      const allProfiles = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+      const allCircles = Array.isArray(circlesRes.data) ? circlesRes.data : [];
+      const students = allProfiles.filter((p) => p.role === "student");
+      const teacherProfiles = allProfiles.filter((p) => p.role === "teacher");
+      const teachersList = teacherProfiles.map((t) => {
+        const circle = allCircles.find((c) => c.teacher_id === t.id || c.id === t.circle_id);
+        const circleStudents = students.filter((s) => s.circle_id === circle?.id || s.teacher_id === t.id);
+        const isDeactivated = deactivatedTeachersSet.has(t.id);
+        const mustChangePassword = teachersMustChangePasswordSet.has(t.id) || !!t.must_change_password;
+        return {
+          id: t.id,
+          name: t.name || "\u0645\u0639\u0644\u0645 \u0642\u0631\u0622\u0646",
+          email: t.email || "",
+          gender: t.gender || "male",
+          circleId: circle?.id || t.circle_id || null,
+          circleName: circle?.name || "\u0628\u062F\u0648\u0646 \u062D\u0644\u0642\u0629",
+          studentsCount: circleStudents.length,
+          createdAt: t.created_at || (/* @__PURE__ */ new Date()).toISOString(),
+          isDeactivated,
+          mustChangePassword
+        };
+      });
+      return res.json({
+        success: true,
+        teachers: teachersList
+      });
+    } catch (err) {
+      console.error("\u274C [API /api/admin/teachers] Error:", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  app.post("/api/admin/create-teacher", async (req, res) => {
+    const { name, email, gender = "male", circleName } = req.body;
+    console.log(`
+========================================`);
+    console.log(`\u{1F468}\u200D\u{1F3EB} [API /api/admin/create-teacher] Admin creating new teacher: ${name} (${email}), gender: ${gender}`);
+    if (!name || !email) {
+      return res.status(400).json({ success: false, error: "\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u0643\u0627\u0645\u0644 \u0648\u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A \u0645\u0637\u0644\u0648\u0628\u0627\u0646 \u0644\u0625\u0646\u0634\u0627\u0621 \u062D\u0633\u0627\u0628 \u0627\u0644\u0645\u0639\u0644\u0645." });
+    }
+    try {
+      const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let tempPassword = "";
+      for (let i = 0; i < 9; i++) {
+        tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      console.log(`\u{1F511} Server-side generated temporary password for teacher (length ${tempPassword.length})`);
+      let teacherId = null;
+      let user = null;
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        console.log(`\u{1F510} Creating teacher Auth account via Supabase Admin API with Service Role...`);
+        const adminCreateRes = await supabaseRequest("/auth/v1/admin/users", {
+          method: "POST",
+          useServiceRole: true,
+          body: {
+            email: email.trim(),
+            password: tempPassword,
+            email_confirm: true,
+            user_metadata: {
+              name: name.trim(),
+              role: "teacher",
+              gender,
+              must_change_password: true
+            },
+            app_metadata: {
+              role: "teacher"
+            }
+          }
+        });
+        if (adminCreateRes.ok && adminCreateRes.data) {
+          user = adminCreateRes.data.user || adminCreateRes.data;
+          teacherId = user.id;
+          console.log(`\u2705 Teacher Auth account created via Admin API: ${teacherId}`);
+        } else {
+          console.warn(`\u26A0\uFE0F Admin API user creation returned status ${adminCreateRes.status}:`, adminCreateRes.data);
+          const rawErr = adminCreateRes.data?.msg || adminCreateRes.data?.message || adminCreateRes.data?.error_description || "";
+          if (rawErr.toLowerCase().includes("already registered") || rawErr.toLowerCase().includes("already exists")) {
+            return res.status(400).json({ success: false, error: "\u0647\u0630\u0627 \u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A \u0645\u0633\u062C\u0644 \u0645\u0633\u0628\u0642\u0627\u064B \u0641\u064A \u0627\u0644\u0646\u0638\u0627\u0645 \u0644\u0645\u0639\u0644\u0645 \u0623\u0648 \u0637\u0627\u0644\u0628 \u0622\u062E\u0631." });
+          }
+        }
+      }
+      if (!teacherId) {
+        console.log(`\u2139\uFE0F Falling back to /auth/v1/signup for teacher account creation...`);
+        const signupRes = await supabaseRequest("/auth/v1/signup", {
+          method: "POST",
+          body: {
+            email: email.trim(),
+            password: tempPassword,
+            data: {
+              name: name.trim(),
+              role: "teacher",
+              gender,
+              must_change_password: true
+            }
+          }
+        });
+        user = signupRes.data?.user || (signupRes.data?.id ? signupRes.data : null);
+        if (!signupRes.ok || !user) {
+          const rawErr = signupRes.data?.msg || signupRes.data?.error_description || signupRes.data?.message || "";
+          const lower = rawErr.toLowerCase();
+          let userFacingError = `\u062A\u0639\u0630\u0631 \u0625\u0646\u0634\u0627\u0621 \u062D\u0633\u0627\u0628 \u0627\u0644\u0645\u0639\u0644\u0645: ${rawErr || "\u062E\u0637\u0623 \u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641 \u0641\u064A \u062E\u0627\u062F\u0645 \u0627\u0644\u0645\u0635\u0627\u062F\u0642\u0629"}`;
+          if (lower.includes("already registered") || lower.includes("already exists")) {
+            userFacingError = "\u0647\u0630\u0627 \u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A \u0645\u0633\u062C\u0644 \u0645\u0633\u0628\u0642\u0627\u064B \u0641\u064A \u0627\u0644\u0646\u0638\u0627\u0645 \u0644\u0645\u0639\u0644\u0645 \u0623\u0648 \u0637\u0627\u0644\u0628 \u0622\u062E\u0631.";
+          }
+          console.error(`\u274C [API /api/admin/create-teacher] Supabase Auth creation failed:`, rawErr);
+          return res.status(400).json({ success: false, error: userFacingError });
+        }
+        teacherId = user.id;
+      }
+      teachersMustChangePasswordSet.add(teacherId);
+      let createdCircle = null;
+      let circleId = null;
+      if (circleName && circleName.trim()) {
+        const genCircleId = import_crypto.default.randomUUID();
+        const circleData = {
+          id: genCircleId,
+          name: circleName.trim(),
+          teacher_id: teacherId,
+          teacher_name: name.trim(),
+          gender,
+          // Circle gender strictly matches teacher gender
+          student_ids: [],
+          is_active: true
+        };
+        const circleRes = await supabaseRequest("/rest/v1/circles", {
+          method: "POST",
+          useServiceRole: true,
+          body: circleData
+        });
+        if (circleRes.ok) {
+          createdCircle = circleData;
+          circleId = genCircleId;
+          console.log(`\u2705 Circle created for teacher: ${circleName} (${genCircleId})`);
+        } else {
+          console.warn(`\u26A0\uFE0F Could not save circle to database:`, circleRes.data);
+        }
+      }
+      const profileData = {
+        id: teacherId,
+        email: email.trim(),
+        name: name.trim(),
+        role: "teacher",
+        gender,
+        circle_id: circleId,
+        xp: 0,
+        streak: 1,
+        current_week: 1,
+        completed_nodes: [],
+        completed_weeks: []
+      };
+      const profRes = await supabaseRequest("/rest/v1/profiles?on_conflict=id", {
+        method: "POST",
+        useServiceRole: true,
+        prefer: "resolution=merge-duplicates,return=representation",
+        body: profileData
+      });
+      if (!profRes.ok) {
+        console.warn(`\u26A0\uFE0F Profile upsert warning with service role:`, profRes.data);
+      }
+      console.log(`\u{1F389} [API /api/admin/create-teacher] Teacher successfully created! ID: ${teacherId}`);
+      console.log(`========================================
+`);
+      return res.json({
+        success: true,
+        message: "\u062A\u0645 \u0625\u0646\u0634\u0627\u0621 \u062D\u0633\u0627\u0628 \u0627\u0644\u0645\u0639\u0644\u0645 \u0648\u0627\u0644\u062D\u0644\u0642\u0629 \u0628\u0646\u062C\u0627\u062D",
+        teacher: {
+          id: teacherId,
+          name: name.trim(),
+          email: email.trim(),
+          gender,
+          circleName: circleName?.trim() || null,
+          circleId,
+          mustChangePassword: true
+        },
+        temporaryPassword: tempPassword,
+        circle: createdCircle
+      });
+    } catch (err) {
+      console.error(`\u274C [API /api/admin/create-teacher] Internal error:`, err);
+      return res.status(500).json({ success: false, error: err.message || "\u062D\u062F\u062B \u062E\u0637\u0623 \u063A\u064A\u0631 \u0645\u062A\u0648\u0642\u0639 \u0623\u062B\u0646\u0627\u0621 \u0625\u0646\u0634\u0627\u0621 \u062D\u0633\u0627\u0628 \u0627\u0644\u0645\u0639\u0644\u0645" });
+    }
+  });
+  app.post("/api/admin/regenerate-teacher-password", async (req, res) => {
+    const { teacherId, teacherEmail } = req.body;
+    if (!teacherId) {
+      return res.status(400).json({ success: false, error: "\u0645\u0639\u0631\u0641 \u0627\u0644\u0645\u0639\u0644\u0645 \u0645\u0637\u0644\u0648\u0628" });
+    }
+    try {
+      const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let newTempPassword = "";
+      for (let i = 0; i < 9; i++) {
+        newTempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      teachersMustChangePasswordSet.add(teacherId);
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        const updateRes = await supabaseRequest(`/auth/v1/admin/users/${teacherId}`, {
+          method: "PUT",
+          useServiceRole: true,
+          body: {
+            password: newTempPassword,
+            user_metadata: { must_change_password: true }
+          }
+        });
+        if (!updateRes.ok) {
+          const rawErr = updateRes.data?.msg || updateRes.data?.message || "";
+          console.warn(`\u26A0\uFE0F Could not update user password via service role:`, rawErr);
+        }
+      }
+      console.log(`\u{1F511} [API /api/admin/regenerate-teacher-password] New password generated for teacher ${teacherId}`);
+      return res.json({
+        success: true,
+        message: "\u062A\u0645 \u062A\u0648\u0644\u064A\u062F \u0643\u0644\u0645\u0629 \u0645\u0631\u0648\u0631 \u0645\u0624\u0642\u062A\u0629 \u062C\u062F\u064A\u062F\u0629 \u0644\u0644\u0645\u0639\u0644\u0645 \u0628\u0646\u062C\u0627\u062D",
+        temporaryPassword: newTempPassword
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message || "\u0641\u0634\u0644 \u062A\u0648\u0644\u064A\u062F \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631" });
+    }
+  });
+  app.post("/api/admin/delete-teacher", async (req, res) => {
+    const { teacherId } = req.body;
+    if (!teacherId) {
+      return res.status(400).json({ success: false, error: "\u0645\u0639\u0631\u0641 \u0627\u0644\u0645\u0639\u0644\u0645 \u0645\u0637\u0644\u0648\u0628" });
+    }
+    try {
+      console.log(`\u{1F5D1}\uFE0F [API /api/admin/delete-teacher] Deactivating teacher: ${teacherId}`);
+      deactivatedTeachersSet.add(teacherId);
+      await supabaseRequest(`/rest/v1/circles?teacher_id=eq.${teacherId}`, {
+        method: "PATCH",
+        useServiceRole: true,
+        body: { is_active: false }
+      });
+      await supabaseRequest(`/rest/v1/profiles?id=eq.${teacherId}`, {
+        method: "PATCH",
+        useServiceRole: true,
+        body: { role: "deactivated_teacher" }
+      });
+      return res.json({
+        success: true,
+        message: "\u062A\u0645 \u062A\u0639\u0637\u064A\u0644 \u062D\u0633\u0627\u0628 \u0627\u0644\u0645\u0639\u0644\u0645 \u0648\u0625\u0644\u063A\u0627\u0621 \u062A\u0646\u0634\u064A\u0637 \u062D\u0644\u0642\u0627\u062A\u0647 \u0628\u0646\u062C\u0627\u062D"
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message || "\u0641\u0634\u0644 \u062A\u0639\u0637\u064A\u0644 \u062D\u0633\u0627\u0628 \u0627\u0644\u0645\u0639\u0644\u0645" });
+    }
+  });
+  app.post("/api/admin/teacher-change-password", async (req, res) => {
+    const { userId, newPassword } = req.body;
+    const userToken = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+    if (!userId || !newPassword) {
+      return res.status(400).json({ success: false, error: "\u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629" });
+    }
+    try {
+      const updateRes = await supabaseRequest("/auth/v1/user", {
+        method: "PUT",
+        token: userToken,
+        body: {
+          password: newPassword.trim(),
+          data: { must_change_password: false }
+        }
+      });
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        await supabaseRequest(`/auth/v1/admin/users/${userId}`, {
+          method: "PUT",
+          useServiceRole: true,
+          body: {
+            password: newPassword.trim(),
+            user_metadata: { must_change_password: false }
+          }
+        });
+      }
+      teachersMustChangePasswordSet.delete(userId);
+      console.log(`\u2705 [API /api/admin/teacher-change-password] Password successfully updated for teacher: ${userId}`);
+      return res.json({
+        success: true,
+        message: "\u062A\u0645 \u062A\u063A\u064A\u064A\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0628\u0646\u062C\u0627\u062D!"
+      });
+    } catch (err) {
+      console.error("\u274C [API /api/admin/teacher-change-password] Error:", err);
+      return res.status(500).json({ success: false, error: err.message || "\u062A\u0639\u0630\u0631 \u062A\u063A\u064A\u064A\u0631 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631" });
+    }
+  });
+  app.post("/api/admin/promote-admin", async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: "\u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A \u0645\u0637\u0644\u0648\u0628." });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      console.log(`\u{1F451} [API /api/admin/promote-admin] Promoting user to admin: ${cleanEmail}`);
+      const profRes = await supabaseRequest(`/rest/v1/profiles?email=eq.${encodeURIComponent(cleanEmail)}&select=*`, {
+        useServiceRole: true
+      });
+      if (!profRes.ok || !Array.isArray(profRes.data) || profRes.data.length === 0) {
+        console.warn(`\u26A0\uFE0F [API /api/admin/promote-admin] User not found with email: ${cleanEmail}`);
+        return res.status(404).json({
+          success: false,
+          error: `\u0644\u0645 \u064A\u062A\u0645 \u0627\u0644\u0639\u062B\u0648\u0631 \u0639\u0644\u0649 \u062D\u0633\u0627\u0628 \u0645\u0633\u062C\u0644 \u0628\u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A (${cleanEmail}). \u062A\u0623\u0643\u062F \u0645\u0646 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062D\u0633\u0627\u0628 \u0623\u0648\u0644\u0627\u064B \u0642\u0628\u0644 \u062A\u0631\u0642\u064A\u062A\u0647.`
+        });
+      }
+      const user = profRes.data[0];
+      const userId = user.id;
+      adminUserIdsSet.add(userId);
+      adminEmailsSet.add(cleanEmail);
+      let profileUpdated = false;
+      const updateProfileRes = await supabaseRequest(`/rest/v1/profiles?id=eq.${userId}`, {
+        method: "PATCH",
+        useServiceRole: true,
+        body: { role: "admin" }
+      });
+      if (updateProfileRes.ok) {
+        profileUpdated = true;
+      } else {
+        console.warn(`\u26A0\uFE0F [API /api/admin/promote-admin] profiles_role_check or constraint notice:`, updateProfileRes.data?.message || updateProfileRes.data);
+      }
+      let authMetadataUpdated = false;
+      if (SUPABASE_SERVICE_ROLE_KEY) {
+        const updateAuthRes = await supabaseRequest(`/auth/v1/admin/users/${userId}`, {
+          method: "PUT",
+          useServiceRole: true,
+          body: {
+            app_metadata: { role: "admin", is_admin: true },
+            user_metadata: { role: "admin", is_admin: true }
+          }
+        });
+        if (updateAuthRes.ok) {
+          authMetadataUpdated = true;
+          console.log(`\u2705 [API /api/admin/promote-admin] Auth metadata successfully updated to admin for user ${userId}`);
+        } else {
+          console.warn(`\u26A0\uFE0F [API /api/admin/promote-admin] Auth metadata update warning:`, updateAuthRes.data);
+        }
+      }
+      console.log(`\u{1F389} [API /api/admin/promote-admin] Successfully promoted ${cleanEmail} (ID: ${userId}) to admin!`);
+      return res.json({
+        success: true,
+        message: `\u062A\u0645\u062A \u062A\u0631\u0642\u064A\u0629 \u0627\u0644\u062D\u0633\u0627\u0628 (${cleanEmail}) \u0625\u0644\u0649 \u062F\u0648\u0631 \u0645\u062F\u064A\u0631 \u0627\u0644\u0646\u0638\u0627\u0645 \u0628\u0646\u062C\u0627\u062D! \u064A\u0645\u0643\u0646\u0643 \u0627\u0644\u0622\u0646 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0628\u0647 \u0644\u0644\u062F\u062E\u0648\u0644 \u0641\u0648\u0631\u0627\u064B \u0625\u0644\u0649 \u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645 \u0627\u0644\u0625\u062F\u0627\u0631\u064A\u0629.`,
+        profile: { ...user, role: "admin" }
+      });
+    } catch (err) {
+      console.error(`\u274C [API /api/admin/promote-admin] Server error:`, err);
+      return res.status(500).json({
+        success: false,
+        error: `\u062D\u062F\u062B \u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645 \u0623\u062B\u0646\u0627\u0621 \u0627\u0644\u062A\u0631\u0642\u064A\u0629: ${err.message || "\u062E\u0637\u0623 \u063A\u064A\u0631 \u0645\u062A\u0648\u0642\u0639"}`
+      });
+    }
   });
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", serverTime: (/* @__PURE__ */ new Date()).toISOString() });
