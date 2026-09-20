@@ -454,7 +454,7 @@ export const getTeacherDashboardData = async (
 };
 
 /**
- * 4.01 جلب تفاصيل حلقة الطالب واسم المعلم بطلب شبكة واحد
+ * 4.01 جلب تفاصيل حلقة الطالب واسم المعلم بطلب مباشر من Supabase
  */
 export const getStudentCircleInfo = async (
   circleId: string,
@@ -468,9 +468,41 @@ export const getStudentCircleInfo = async (
     if (cached) return cached;
   }
 
+  // 1. استعلام تفاصيل الحلقة مباشرة من Supabase أولاً
+  const circle = await getCircleDetails(circleId);
+  if (circle) {
+    let teacherName = circle.teacherName || 'المعلم';
+    const teacherId = circle.teacherId;
+
+    if (teacherId && (!circle.teacherName || circle.teacherName === 'المعلم' || circle.teacherName === 'الشيخ')) {
+      try {
+        const { data: teacherProfile } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', teacherId)
+          .maybeSingle();
+
+        if (teacherProfile?.name) {
+          teacherName = teacherProfile.name;
+        }
+      } catch (err) {
+        console.warn('⚠️ [supabaseService.getStudentCircleInfo] Teacher profile query note:', err);
+      }
+    }
+
+    const result = {
+      circle,
+      teacherName,
+      teacherId,
+    };
+    setCache(cacheKey, result);
+    return result;
+  }
+
+  // 2. محاولة الخادم الاختيارية فقط إذا كانت الاستجابة بتنسيق JSON (لتفادي أخطاء 404 في GitHub Pages)
   try {
     const res = await fetch(`/api/student/circle-info/${circleId}`);
-    if (res.ok) {
+    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
       const json = await res.json();
       if (json.success && json.circle) {
         const result = {
@@ -483,20 +515,14 @@ export const getStudentCircleInfo = async (
       }
     }
   } catch (err) {
-    console.warn('⚠️ [supabaseService.getStudentCircleInfo] Error:', err);
+    console.warn('⚠️ [supabaseService.getStudentCircleInfo] API error note:', err);
   }
 
-  const circle = await getCircleDetails(circleId);
-  if (!circle) return null;
-  return {
-    circle,
-    teacherName: circle.teacherName || 'المعلم',
-    teacherId: circle.teacherId,
-  };
+  return null;
 };
 
 /**
- * 4.1 جلب حلقات المعلم
+ * 4.1 جلب حلقات المعلم (مباشرة عبر Supabase)
  */
 export const getTeacherCircles = async (teacherId: string): Promise<Circle[]> => {
   console.log('🔍 [supabaseService.getTeacherCircles] Starting search for teacher ID:', teacherId);
@@ -509,22 +535,8 @@ export const getTeacherCircles = async (teacherId: string): Promise<Circle[]> =>
   const cached = getCached<Circle[]>(cacheKey);
   if (cached) return cached;
 
-  // 1. Fast API Request First (Runs in server container with direct service key)
   try {
-    const res = await fetch(`/api/circles/teacher/${teacherId}`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && Array.isArray(json.circles) && json.circles.length > 0) {
-        setCache(cacheKey, json.circles);
-        return json.circles;
-      }
-    }
-  } catch (apiErr) {
-    console.warn('⚠️ [supabaseService.getTeacherCircles] API error, falling back to direct:', apiErr);
-  }
-
-  try {
-    // 2. Direct Supabase query
+    // 1. استعلام Supabase المباشر أولاً
     const { data, error } = await supabase
       .from('circles')
       .select('*')
@@ -534,7 +546,7 @@ export const getTeacherCircles = async (teacherId: string): Promise<Circle[]> =>
       const circles = data.map(c => ({
         id: c.id,
         name: c.name,
-        code: c.code || (c.id ? c.id.slice(0, 6).toUpperCase() : 'WRD-101'),
+        code: c.code || (c.id ? `WRD-${c.id.replace(/-/g, '').slice(0, 4).toUpperCase()}` : 'WRD-101'),
         teacherId: c.teacher_id,
         teacherName: c.teacher_name,
         gender: c.gender,
@@ -549,11 +561,25 @@ export const getTeacherCircles = async (teacherId: string): Promise<Circle[]> =>
     console.warn('⚠️ [supabaseService.getTeacherCircles] Direct Supabase exception:', err);
   }
 
+  // 2. محاولة الخادم الاختيارية فقط إذا كانت الاستجابة JSON
+  try {
+    const res = await fetch(`/api/circles/teacher/${teacherId}`);
+    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.circles) && json.circles.length > 0) {
+        setCache(cacheKey, json.circles);
+        return json.circles;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('⚠️ [supabaseService.getTeacherCircles] API error skipped:', apiErr);
+  }
+
   return [];
 };
 
 /**
- * 4.2 جلب تفاصيل حلقة معينة
+ * 4.2 جلب تفاصيل حلقة معينة (مباشرة عبر Supabase)
  */
 export const getCircleDetails = async (circleId: string): Promise<Circle | null> => {
   if (!circleId) return null;
@@ -562,33 +588,19 @@ export const getCircleDetails = async (circleId: string): Promise<Circle | null>
   const cached = getCached<Circle>(cacheKey);
   if (cached) return cached;
 
-  // 1. Fast Server API proxy
   try {
-    const res = await fetch(`/api/circles/${circleId}`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && json.circle) {
-        setCache(cacheKey, json.circle);
-        return json.circle;
-      }
-    }
-  } catch (err) {
-    console.warn('⚠️ [supabaseService.getCircleDetails] API error:', err);
-  }
-
-  try {
-    // 2. Direct Supabase
+    // 1. استعلام Supabase المباشر
     const { data, error } = await supabase
       .from('circles')
       .select('*')
       .eq('id', circleId)
-      .single();
+      .maybeSingle();
 
     if (!error && data) {
       const circle: Circle = {
         id: data.id,
         name: data.name,
-        code: data.code || (data.id ? data.id.slice(0, 6).toUpperCase() : 'WRD-101'),
+        code: data.code || (data.id ? `WRD-${data.id.replace(/-/g, '').slice(0, 4).toUpperCase()}` : 'WRD-101'),
         teacherId: data.teacher_id,
         teacherName: data.teacher_name,
         gender: data.gender,
@@ -601,6 +613,31 @@ export const getCircleDetails = async (circleId: string): Promise<Circle | null>
     }
   } catch (err) {
     console.warn('⚠️ [supabaseService.getCircleDetails] Direct Supabase error:', err);
+  }
+
+  // 2. فحص حلقات النظام الافتراضية
+  const cleanId = String(circleId).trim().toLowerCase();
+  const sysMatch = DEFAULT_SYSTEM_CIRCLES.find(c =>
+    c.id.toLowerCase() === cleanId ||
+    c.code.toLowerCase() === cleanId
+  );
+  if (sysMatch) {
+    setCache(cacheKey, sysMatch);
+    return sysMatch;
+  }
+
+  // 3. محاولة الخادم الاختيارية فقط إذا كانت الاستجابة JSON
+  try {
+    const res = await fetch(`/api/circles/${circleId}`);
+    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+      const json = await res.json();
+      if (json.success && json.circle) {
+        setCache(cacheKey, json.circle);
+        return json.circle;
+      }
+    }
+  } catch (err) {
+    console.warn('⚠️ [supabaseService.getCircleDetails] API optional check skipped:', err);
   }
 
   return null;
@@ -616,27 +653,13 @@ export const getProfile = async (userId: string): Promise<any | null> => {
   const cached = getCached<any>(cacheKey);
   if (cached) return cached;
 
-  // 1. Server API fast lookup
   try {
-    const res = await fetch(`/api/profile/${userId}`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && json.profile) {
-        setCache(cacheKey, json.profile);
-        return json.profile;
-      }
-    }
-  } catch (apiErr) {
-    console.warn('⚠️ [supabaseService.getProfile] API fallback error:', apiErr);
-  }
-
-  try {
-    // 2. Direct Supabase query
+    // 1. استعلام Supabase المباشر أولاً
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (!error && data) {
       setCache(cacheKey, data);
@@ -646,59 +669,282 @@ export const getProfile = async (userId: string): Promise<any | null> => {
     console.warn('⚠️ [supabaseService.getProfile] Direct getProfile exception:', err);
   }
 
+  // 2. محاولة الخادم الاختيارية فقط إذا كانت الاستجابة JSON
+  try {
+    const res = await fetch(`/api/profile/${userId}`);
+    if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+      const json = await res.json();
+      if (json.success && json.profile) {
+        setCache(cacheKey, json.profile);
+        return json.profile;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('⚠️ [supabaseService.getProfile] API fallback skipped:', apiErr);
+  }
+
   return null;
 };
 
 /**
- * 5. الانضمام إلى حلقة
+ * 5. الانضمام إلى حلقة (مباشرة عبر Supabase من جهة العميل - يعمل بالكامل على GitHub Pages)
  */
-export const joinCircle = async (studentId: string, circleId: string) => {
-  console.log('🔗 [supabaseService] Joining circle:', { studentId, circleId });
+export const joinCircle = async (
+  studentId: string,
+  circleCodeOrId: string
+): Promise<{ success: boolean; message: string; circle: Circle }> => {
+  console.log('🔗 [supabaseService.joinCircle] Joining circle directly via Supabase:', { studentId, circleCodeOrId });
+  const cleanInput = String(circleCodeOrId || '').trim();
+  if (!studentId) {
+    throw new Error('يرجى تسجيل الدخول أولاً للانضمام إلى الحلقة');
+  }
+  if (!cleanInput) {
+    throw new Error('يرجى تقديم رمز أو معرّف الحلقة');
+  }
+
+  const normalizedInput = cleanInput.replace(/^WRD[-_]?/i, '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+  let matchedCircle: any = null;
+
+  // 1. جلب الحلقة من جدول circles حسب المعرّف (ID)
   try {
-    // 1. Direct Supabase join
-    const { data: circle, error: circleError } = await supabase
+    const { data: byId, error: byIdErr } = await supabase
       .from('circles')
-      .select('id, student_ids, teacher_id, name, teacher_name')
-      .eq('id', circleId)
-      .single();
+      .select('*')
+      .eq('id', cleanInput)
+      .maybeSingle();
 
-    if (!circleError && circle) {
-      const updatedStudents = Array.from(new Set([...(circle.student_ids || []), studentId]));
-
-      await supabase
-        .from('circles')
-        .update({ student_ids: updatedStudents })
-        .eq('id', circleId);
-
-      await supabase
-        .from('profiles')
-        .update({
-          circle_id: circleId,
-          teacher_id: circle.teacher_id,
-        })
-        .eq('id', studentId);
-
-      console.log('✅ [supabaseService] Student joined circle successfully via Supabase direct');
-      return { success: true, circle };
+    if (!byIdErr && byId) {
+      matchedCircle = byId;
+      console.log('✅ [supabaseService.joinCircle] Matched circle by exact ID:', byId.id);
     }
-  } catch (directErr) {
-    console.warn('⚠️ [supabaseService] Direct join failed, trying API proxy:', directErr);
+  } catch (e) {
+    console.warn('⚠️ [supabaseService.joinCircle] Error checking circle by id:', e);
   }
 
-  // 2. API Proxy Fallback
-  const res = await fetch('/api/circles/join', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ studentId, circleCodeOrId: circleId }),
-  });
+  // 2. جلب الحلقة من جدول circles حسب الرمز (code)
+  if (!matchedCircle) {
+    try {
+      const { data: byCode, error: byCodeErr } = await supabase
+        .from('circles')
+        .select('*')
+        .eq('code', cleanInput)
+        .maybeSingle();
 
-  const json = await res.json();
-  if (!res.ok || !json.success) {
-    throw new Error(json.error || 'تعذر الانضمام للحلقة');
+      if (!byCodeErr && byCode) {
+        matchedCircle = byCode;
+        console.log('✅ [supabaseService.joinCircle] Matched circle by exact code:', byCode.code);
+      }
+    } catch {
+      // قد لا يكون عمود code مدعوماً في بعض المخططات، نتجاهل الخطأ ونواصل البحث في القائمة
+    }
   }
 
-  console.log('✅ [supabaseService] Student joined circle via API proxy');
-  return json;
+  // 3. بحث شامل في كل الحلقات لمطابقة الرمز (حروف كبيرة/صغيرة، بدون بادئة WRD) أو الاسم
+  if (!matchedCircle) {
+    try {
+      const { data: allCircles, error: listErr } = await supabase
+        .from('circles')
+        .select('*');
+
+      if (!listErr && Array.isArray(allCircles) && allCircles.length > 0) {
+        matchedCircle = allCircles.find((c: any) => {
+          if (c.id === cleanInput) return true;
+          if (c.code && c.code.toLowerCase() === cleanInput.toLowerCase()) return true;
+          const cCodeNorm = String(c.code || '').replace(/^WRD[-_]?/i, '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          if (cCodeNorm && cCodeNorm === normalizedInput) return true;
+          const cIdNorm = String(c.id || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          if (normalizedInput.length >= 3 && cIdNorm.startsWith(normalizedInput)) return true;
+          if (c.name && c.name.trim().toLowerCase() === cleanInput.toLowerCase()) return true;
+          return false;
+        });
+        if (matchedCircle) {
+          console.log('✅ [supabaseService.joinCircle] Matched circle from list:', matchedCircle.name);
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [supabaseService.joinCircle] Error listing circles:', e);
+    }
+  }
+
+  // 4. إذا لم توجد في قاعدة البيانات، التحقق من الحلقات الافتراضية للنظام
+  if (!matchedCircle) {
+    const sysMatch = DEFAULT_SYSTEM_CIRCLES.find(c =>
+      c.id === cleanInput ||
+      c.code.toLowerCase() === cleanInput.toLowerCase() ||
+      c.code.replace(/^WRD[-_]?/i, '').toLowerCase() === normalizedInput ||
+      c.name.trim().toLowerCase() === cleanInput.toLowerCase()
+    );
+
+    if (sysMatch) {
+      console.log('⚡ [supabaseService.joinCircle] Matched default system circle:', sysMatch.name);
+      // محاولة حفظ الحلقة في جدول circles في Supabase
+      try {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('circles')
+          .insert({
+            id: sysMatch.id,
+            name: sysMatch.name,
+            teacher_id: sysMatch.teacherId,
+            teacher_name: sysMatch.teacherName,
+            gender: sysMatch.gender,
+            student_ids: [studentId],
+            is_active: true,
+            code: sysMatch.code,
+          })
+          .select()
+          .maybeSingle();
+
+        if (!insertErr && inserted) {
+          matchedCircle = inserted;
+        } else {
+          // جلبها في حال كانت موجودة مسبقاً
+          const { data: existing } = await supabase
+            .from('circles')
+            .select('*')
+            .eq('id', sysMatch.id)
+            .maybeSingle();
+          matchedCircle = existing || {
+            ...sysMatch,
+            teacher_id: sysMatch.teacherId,
+            teacher_name: sysMatch.teacherName,
+            student_ids: [studentId],
+          };
+        }
+      } catch (err) {
+        console.warn('⚠️ [supabaseService.joinCircle] Note on inserting default circle:', err);
+        matchedCircle = {
+          ...sysMatch,
+          teacher_id: sysMatch.teacherId,
+          teacher_name: sysMatch.teacherName,
+          student_ids: [studentId],
+        };
+      }
+    }
+  }
+
+  if (!matchedCircle) {
+    throw new Error('لم يتم العثور على حلقة مطابقة للرمز أو الاسم المدخل. يرجى التأكد من الرمز والمحاولة مجدداً.');
+  }
+
+  // 5. إضافة معرّف الطالبة إلى مصفوفة student_ids في جدول circles (مع تجنب التكرار)
+  const currentStudentIds: string[] = Array.isArray(matchedCircle.student_ids) ? matchedCircle.student_ids : [];
+  const updatedStudentIds = Array.from(new Set([...currentStudentIds, studentId]));
+
+  try {
+    const { error: circleUpdateErr } = await supabase
+      .from('circles')
+      .update({ student_ids: updatedStudentIds })
+      .eq('id', matchedCircle.id);
+
+    if (circleUpdateErr) {
+      console.warn('⚠️ [supabaseService.joinCircle] Updating circles.student_ids note (check RLS):', circleUpdateErr.message);
+    } else {
+      console.log('✅ [supabaseService.joinCircle] Updated circles.student_ids successfully');
+    }
+  } catch (err) {
+    console.warn('⚠️ [supabaseService.joinCircle] Exception updating circles:', err);
+  }
+
+  // 6. تحديث صف الطالبة في جدول profiles:
+  // - circle_id = معرّف الحلقة
+  // - teacher_id = معرّف المعلم
+  const teacherId = matchedCircle.teacher_id || matchedCircle.teacherId || null;
+  const teacherName = matchedCircle.teacher_name || matchedCircle.teacherName || 'المعلم';
+
+  const { error: profileUpdateErr } = await supabase
+    .from('profiles')
+    .update({
+      circle_id: matchedCircle.id,
+      teacher_id: teacherId,
+    })
+    .eq('id', studentId);
+
+  if (profileUpdateErr) {
+    console.error('❌ [supabaseService.joinCircle] Error updating profiles row:', profileUpdateErr);
+    throw new Error(`تعذر حفظ بيانات الانضمام في ملف الطالبة: ${profileUpdateErr.message}`);
+  }
+
+  console.log('✅ [supabaseService.joinCircle] Profile updated with circle_id and teacher_id successfully');
+
+  const circleCode = matchedCircle.code || (matchedCircle.id ? `WRD-${matchedCircle.id.replace(/-/g, '').slice(0, 4).toUpperCase()}` : 'WRD-101');
+  const mappedCircle: Circle = {
+    id: matchedCircle.id,
+    name: matchedCircle.name,
+    code: circleCode,
+    teacherId: teacherId || '',
+    teacherName: teacherName,
+    gender: matchedCircle.gender || 'female',
+    studentIds: updatedStudentIds,
+    isActive: matchedCircle.is_active !== false,
+    createdAt: matchedCircle.created_at || new Date().toISOString(),
+  };
+
+  // إبطال التخزين المؤقت لضمان ظهور التغيير فوراً
+  invalidateCache(`student_circle_info_${matchedCircle.id}`);
+  invalidateCache(`circle_details_${matchedCircle.id}`);
+
+  return {
+    success: true,
+    message: `تم الانضمام بنجاح إلى ${matchedCircle.name}!`,
+    circle: mappedCircle,
+  };
+};
+
+/**
+ * 5.1 مغادرة الحلقة (مباشرة عبر Supabase من جهة العميل)
+ */
+export const leaveCircle = async (
+  studentId: string,
+  circleId?: string
+): Promise<{ success: boolean; message: string }> => {
+  console.log('👋 [supabaseService.leaveCircle] Leaving circle directly via Supabase:', { studentId, circleId });
+  if (!studentId) {
+    throw new Error('معرّف الطالب مطلوب لمغادرة الحلقة');
+  }
+
+  // 1. تحديث صف الطالبة في جدول profiles: تفريغ circle_id و teacher_id
+  const { error: profileUpdateErr } = await supabase
+    .from('profiles')
+    .update({
+      circle_id: null,
+      teacher_id: null,
+    })
+    .eq('id', studentId);
+
+  if (profileUpdateErr) {
+    console.error('❌ [supabaseService.leaveCircle] Error updating profile:', profileUpdateErr);
+    throw new Error(`تعذر إلغاء الربط بالحلقة في ملف الطالبة: ${profileUpdateErr.message}`);
+  }
+
+  // 2. إزالة الطالبة من مصفوفة student_ids في جدول circles إن وُجد معرّف الحلقة
+  if (circleId) {
+    try {
+      const { data: circleData } = await supabase
+        .from('circles')
+        .select('id, student_ids')
+        .eq('id', circleId)
+        .maybeSingle();
+
+      if (circleData && Array.isArray(circleData.student_ids)) {
+        const updatedStudentIds = circleData.student_ids.filter((id: string) => id !== studentId);
+        await supabase
+          .from('circles')
+          .update({ student_ids: updatedStudentIds })
+          .eq('id', circleId);
+      }
+    } catch (err) {
+      console.warn('⚠️ [supabaseService.leaveCircle] Error updating circles.student_ids:', err);
+    }
+
+    invalidateCache(`student_circle_info_${circleId}`);
+    invalidateCache(`circle_details_${circleId}`);
+  }
+
+  return {
+    success: true,
+    message: 'تمت مغادرة الحلقة بنجاح.',
+  };
 };
 
 /**
