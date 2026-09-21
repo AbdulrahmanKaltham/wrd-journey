@@ -201,7 +201,7 @@ export const TeacherStudentsPage: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-heading font-black text-xs sm:text-sm text-slate-900 group-hover:text-[#006304] transition-colors">
-                      {student.displayName || student.name || 'طالب قرآن'}
+                      {student.displayName || student.name || 'طالب'}
                     </h4>
                     <div className="flex items-center gap-2 text-[10px] text-gray-500 font-bold mt-0.5">
                       <span className="text-[#006304]">
@@ -265,7 +265,7 @@ export const TeacherStudentsPage: React.FC = () => {
 
             <div className="text-center space-y-1">
               <h4 className="font-heading font-black text-base text-slate-900">
-                {selectedStudent.displayName || selectedStudent.name || 'طالب قرآن'}
+                {selectedStudent.displayName || selectedStudent.name || 'طالب'}
               </h4>
               <p className="text-xs text-[#006304] font-bold">
                 {selectedStudent.gender === 'female' ? 'طالبة في حلقة الإناث' : 'طالب في حلقة البنين'}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import { t } from '../../lib/i18n';
 import { AvatarDisplay } from '../Avatar/AvatarDisplay';
 import { NodeItem, Week } from '../../types';
 import {
@@ -27,7 +28,7 @@ interface ListeningTaskProps {
 }
 
 export const ListeningTask: React.FC<ListeningTaskProps> = ({ node, week, onClose }) => {
-  const { user, completeNode } = useApp();
+  const { user, completeNode, language } = useApp();
 
   // All surahs in this week
   const surahs = node.surahsList && node.surahsList.length > 0 ? node.surahsList : week.surahs;
@@ -177,14 +178,14 @@ export const ListeningTask: React.FC<ListeningTaskProps> = ({ node, week, onClos
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-bold bg-[#F9BF3B] text-slate-900 px-2 py-0.5 rounded-full">
-                  استماع وترتيل
+                  {language === 'en' ? 'Listening & Recitation' : 'استماع وترتيل'}
                 </span>
                 <span className="text-[10px] text-green-200 font-bold">
-                  {week.title}
+                  {language === 'en' ? t(week.title, 'en') : week.title}
                 </span>
               </div>
               <h3 className="font-heading font-extrabold text-base text-white mt-0.5">
-                {node.title}
+                {language === 'en' ? t(node.title, 'en') : node.title}
               </h3>
             </div>
           </div>

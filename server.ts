@@ -88,6 +88,9 @@ function supabaseRequest(
   });
 }
 
+// In-memory cache to ensure student names are never lost or replaced with generic placeholders
+const studentNamesMemoryCache = new Map<string, string>();
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -757,16 +760,17 @@ async function startServer() {
       const studentCircleMap = new Map<string, string>();
       const studentIds: string[] = [];
       try {
-        let studentQuery = `/rest/v1/profiles?role=eq.student&select=id,name,circle_id,teacher_id`;
+        let studentQuery = `/rest/v1/profiles?role=eq.student&select=id,name,display_name,circle_id,teacher_id`;
         if (isValidUUID(teacherId)) {
-          studentQuery = `/rest/v1/profiles?role=eq.student&or=(teacher_id.eq.${teacherId}${circleIds.length > 0 ? `,circle_id.in.(${circleIds.join(',')})` : ''})&select=id,name,circle_id,teacher_id`;
+          studentQuery = `/rest/v1/profiles?role=eq.student&or=(teacher_id.eq.${teacherId}${circleIds.length > 0 ? `,circle_id.in.(${circleIds.join(',')})` : ''})&select=id,name,display_name,circle_id,teacher_id`;
         }
-        const profRes = await supabaseRequest(studentQuery, { token: userToken });
+        const profRes = await supabaseRequest(studentQuery, { useServiceRole: true, token: userToken });
         if (profRes.ok && Array.isArray(profRes.data)) {
           profRes.data.forEach((p: any) => {
             if (p.id) {
               studentIds.push(p.id);
-              if (p.name) studentNameMap.set(p.id, p.name);
+              const pName = p.display_name || p.name;
+              if (pName && pName.trim()) studentNameMap.set(p.id, pName.trim());
               if (p.circle_id) studentCircleMap.set(p.id, p.circle_id);
             }
           });
@@ -797,10 +801,37 @@ async function startServer() {
         if (recQuery) {
           const recRes = await supabaseRequest(recQuery, { token: userToken });
           if (recRes.ok && Array.isArray(recRes.data)) {
-            // Filter out deleted recordings or recordings not in studentIds
+            // Filter out deleted recordings
             dbRecordings = recRes.data.filter(
-              (r: any) => r && r.student_id && studentIds.includes(r.student_id) && r.status !== 'deleted' && r.status !== 'cancelled_reset'
+              (r: any) => r && r.student_id && r.status !== 'deleted' && r.status !== 'cancelled_reset'
             );
+
+            // Dynamically fetch student profiles for any recording that doesn't have a name yet
+            const missingStudentIds = Array.from(
+              new Set(dbRecordings.map((r: any) => r.student_id).filter((id: string) => !studentNameMap.has(id)))
+            );
+
+            if (missingStudentIds.length > 0) {
+              try {
+                const inFilter = missingStudentIds.map(id => `"${id}"`).join(',');
+                const missingProfsRes = await supabaseRequest(
+                  `/rest/v1/profiles?id=in.(${inFilter})&select=id,name,display_name,circle_id`,
+                  { useServiceRole: true, token: userToken }
+                );
+                if (missingProfsRes.ok && Array.isArray(missingProfsRes.data)) {
+                  missingProfsRes.data.forEach((p: any) => {
+                    const pName = p.display_name || p.name;
+                    if (pName && pName.trim() && pName.trim() !== 'طالب قرآن') {
+                      studentNameMap.set(p.id, pName.trim());
+                      studentNamesMemoryCache.set(p.id, pName.trim());
+                    }
+                    if (p.circle_id) studentCircleMap.set(p.id, p.circle_id);
+                  });
+                }
+              } catch (fetchErr) {
+                console.warn('Notice fetching missing student profiles:', fetchErr);
+              }
+            }
           }
         }
       } catch (e) {
@@ -849,7 +880,11 @@ async function startServer() {
 
       // Map Supabase DB recordings to NodeSubmission objects
       const allSubmissions = dbRecordings.map((rec: any) => {
-        const studentName = studentNameMap.get(rec.student_id) || 'طالب قرآن';
+        const studentName =
+          studentNameMap.get(rec.student_id) ||
+          studentNamesMemoryCache.get(rec.student_id) ||
+          rec.student_name ||
+          'طالب';
         const circleId = rec.circle_id || studentCircleMap.get(rec.student_id) || '';
         const details = resolveSubmissionDetails(rec.node_id, rec.week_id);
 
@@ -1059,10 +1094,14 @@ async function startServer() {
         console.warn('⚠️ [API /api/submissions/submit] Exception while saving to DB recordings table:', dbErr);
       }
 
+      if (studentId && finalStudentName && finalStudentName !== 'طالب قرآن' && finalStudentName !== 'طالب') {
+        studentNamesMemoryCache.set(studentId, finalStudentName.trim());
+      }
+
       const newSubmission = {
         id: savedRecordingId,
         studentId,
-        studentName: finalStudentName || 'طالب قرآن',
+        studentName: finalStudentName || (studentId ? studentNamesMemoryCache.get(studentId) : null) || 'طالب',
         circleId: finalCircleId || '',
         teacherId: finalTeacherId || '',
         nodeId,
@@ -1218,16 +1257,27 @@ async function startServer() {
             const newNodes = existingNodes.includes(nodeId) ? existingNodes : [...existingNodes, nodeId];
             const newXp = (profile.xp || 0) + xpReward;
 
+            const isGateNode = nodeId.includes('gate') || (req.body.nodeTitle && req.body.nodeTitle.includes('بوابة'));
+            const existingWeeks: number[] = Array.isArray(profile.completed_weeks) ? profile.completed_weeks : [];
+            const newWeeks = (isGateNode && weekId && !existingWeeks.includes(weekId))
+              ? [...existingWeeks, weekId]
+              : existingWeeks;
+            const newCurrentWeek = (isGateNode && weekId)
+              ? Math.max(profile.current_week || 1, weekId + 1)
+              : (profile.current_week || 1);
+
             await supabaseRequest(`/rest/v1/profiles?id=eq.${studentId}`, {
               method: 'PATCH',
               body: {
                 completed_nodes: newNodes,
+                completed_weeks: newWeeks,
+                current_week: newCurrentWeek,
                 xp: newXp,
               },
               useServiceRole: true,
               token: userToken,
             });
-            console.log(`✅ [API /api/submissions/review] Student ${studentId} marked completed for node ${nodeId} in DB. XP: ${newXp}`);
+            console.log(`✅ [API /api/submissions/review] Student ${studentId} marked completed for node ${nodeId} in DB. Weeks: ${JSON.stringify(newWeeks)}, current_week: ${newCurrentWeek}, XP: ${newXp}`);
           }
         } catch (profErr) {
           console.warn('Notice updating student profile on review:', profErr);

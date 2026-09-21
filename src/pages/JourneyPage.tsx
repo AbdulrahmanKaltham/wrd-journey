@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useSupabase } from '../context/SupabaseContext';
 import { WORLDS_DATA } from '../data/quranJourneyData';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
@@ -36,8 +36,10 @@ import {
   LogOut,
   CheckCircle,
 } from 'lucide-react';
-import { Week, NodeItem } from '../types';
+import { Week, NodeItem, TrackId } from '../types';
 import { ListeningTask } from '../components/listening/ListeningTask';
+import { TrackSelectionModal } from '../components/TrackSelectionModal';
+import { getSurahName, translateSurahList } from '../lib/i18n';
 
 // Biome Definitions grouping the 17 weeks into 6 thematic adventure zones
 const BIOME_ZONES = [
@@ -98,9 +100,113 @@ const BIOME_ZONES = [
 ];
 
 export const JourneyPage: React.FC = () => {
-  const { user, weeks, startLesson, openListeningTask, openWeekModal, completeNode, userCircle, joinCircleAction, leaveCurrentCircle, circleStudents, setActiveTab } = useSupabase();
-  const [selectedWorld, setSelectedWorld] = useState<'juz_amma' | 'juz_tabarak' | 'juz_qad_samia'>('juz_amma');
+  const {
+    user,
+    weeks,
+    startLesson,
+    openListeningTask,
+    openWeekModal,
+    completeNode,
+    userCircle,
+    joinCircleAction,
+    leaveCurrentCircle,
+    circleStudents,
+    setActiveTab,
+    setTrack,
+    language,
+    t,
+  } = useSupabase();
+  const [selectedWorld, setSelectedWorld] = useState<string>(user.track || 'juz_amma');
   const [chestModalItem, setChestModalItem] = useState<{ node: NodeItem; week: Week; title: string; xp: number } | null>(null);
+
+  // Keep selectedWorld in sync whenever the user track changes
+  useEffect(() => {
+    setSelectedWorld(user.track || 'juz_amma');
+  }, [user.track]);
+
+  // Dynamic Tabs based on chosen user track
+  const trackTabs = useMemo(() => {
+    if (user.track === 'juz_amma_tabarak') {
+      const isAmmaTabarakFinished = user.completedWeeks.includes(16);
+      return [
+        {
+          id: 'juz_amma_tabarak',
+          title: language === 'en' ? 'Amma & Tabarak' : 'عم وتبارك',
+          locked: false,
+          description: '',
+        },
+        {
+          id: 'juz_qad_samia',
+          title: language === 'en' ? 'Qad Samia' : 'قد سمع',
+          locked: !isAmmaTabarakFinished,
+          description: language === 'en'
+            ? 'Complete the 16 weeks of Amma & Tabarak track to automatically unlock this realm.'
+            : 'أكمل الأسابيع الـ ١٦ في مسار عم وتبارك للتأهل التلقائي لفتح مسار جزء قد سمع.',
+        },
+      ];
+    }
+
+    if (user.track === 'juz_qad_samia') {
+      return [
+        {
+          id: 'juz_qad_samia',
+          title: language === 'en' ? 'Qad Samia' : 'قد سمع',
+          locked: false,
+          description: '',
+        },
+        {
+          id: 'upcoming_tracks',
+          title: language === 'en' ? 'Upcoming Tracks' : 'المسارات القادمة',
+          locked: true,
+          description: language === 'en'
+            ? 'Upcoming Quranic tracks are under development and will be available soon insha\'Allah.'
+            : 'المسارات القرآنية القادمة قيد التطوير وستكون متاحة قريباً بإذن الله.',
+        },
+      ];
+    }
+
+    // Default: juz_amma ("عم فقط")
+    const isAmmaFinished = user.completedWeeks.includes(17);
+    return [
+      {
+        id: 'juz_amma',
+        title: language === 'en' ? 'Amma' : 'عم',
+        locked: false,
+        description: '',
+      },
+      {
+        id: 'juz_tabarak',
+        title: language === 'en' ? 'Tabarak' : 'تبارك',
+        locked: !isAmmaFinished,
+        description: language === 'en'
+          ? 'Complete all 17 weeks in the Juz Amma journey to unlock the Juz Tabarak track.'
+          : 'أكمل جميع الأسابيع الـ ١٧ في رحلة جزء عم للتأهل لفتح مسار جزء تبارك.',
+      },
+      {
+        id: 'juz_qad_samia',
+        title: language === 'en' ? 'Qad Samia' : 'قد سمع',
+        locked: true,
+        description: language === 'en'
+          ? 'Complete previous Quranic tracks to unlock Juz Qad Samia.'
+          : 'أكمل المسارات القرآنية السابقة للتأهل لفتح مسار جزء قد سمع.',
+      },
+    ];
+  }, [user.track, user.completedWeeks, language]);
+
+  const isCurrentTrackView = selectedWorld === (user.track || 'juz_amma') || (user.track === 'juz_amma' && selectedWorld === 'juz_amma');
+  const selectedTab = trackTabs.find(tab => tab.id === selectedWorld);
+
+  // Track Selection Modal state for first-time students
+  const [showTrackModal, setShowTrackModal] = useState(false);
+
+  useEffect(() => {
+    if (user.role === 'student') {
+      const hasChosen = typeof localStorage !== 'undefined' && localStorage.getItem(`ward_track_chosen_${user.id}`) === 'true';
+      if (!hasChosen) {
+        setShowTrackModal(true);
+      }
+    }
+  }, [user.id, user.role]);
 
   // Circle Joining & Details Modal State
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -243,9 +349,10 @@ export const JourneyPage: React.FC = () => {
   const renderWorldIcon = (worldId: string) => {
     switch (worldId) {
       case 'juz_amma': return <BookOpen className="w-3.5 h-3.5" />;
+      case 'juz_amma_tabarak': return <BookMarked className="w-3.5 h-3.5" />;
       case 'juz_tabarak': return <BookMarked className="w-3.5 h-3.5" />;
       case 'juz_qad_samia': return <Award className="w-3.5 h-3.5" />;
-      default: return <BookOpen className="w-3.5 h-3.5" />;
+      default: return <Sparkles className="w-3.5 h-3.5" />;
     }
   };
 
@@ -291,7 +398,25 @@ export const JourneyPage: React.FC = () => {
     }, 2200);
   };
 
-  const isFinalAmmaMastered = user.completedWeeks.includes(17) || user.completedNodes.length >= 85;
+  const totalWeeksCount = weeks.length || (user.track === 'juz_amma_tabarak' ? 16 : user.track === 'juz_qad_samia' ? 18 : 17);
+  const isFinalTrackMastered = user.completedWeeks.includes(totalWeeksCount);
+
+  // Dynamic naming based on track
+  const trackMasteryName = language === 'en'
+    ? (user.track === 'juz_amma_tabarak' ? 'Amma & Tabarak Citadel' : user.track === 'juz_qad_samia' ? 'Juz Qad Samia Citadel' : 'Juz Amma Mastery Citadel')
+    : (user.track === 'juz_amma_tabarak' ? 'قلعة إتقان عم وتبارك' : user.track === 'juz_qad_samia' ? 'قلعة إتقان جزء قد سمع' : 'قلعة إتقان جزء عم');
+
+  const trackMasteryDesc = language === 'en'
+    ? (user.track === 'juz_amma_tabarak'
+        ? 'The grand coronation for mastering both Juz Amma & Tabarak'
+        : user.track === 'juz_qad_samia'
+        ? 'The grand coronation for completing Juz Qad Samia'
+        : 'The grand coronation and noble badge for completing blessed Juz Amma')
+    : (user.track === 'juz_amma_tabarak'
+        ? 'التتويج الأكبر والحصول على الوسام الشريف لختم جزأي عم وتبارك'
+        : user.track === 'juz_qad_samia'
+        ? 'التتويج الأكبر والحصول على الوسام الشريف لختم جزء قد سمع المبارك'
+        : 'التتويج الأكبر والحصول على الوسام الشريف لختم جزء عم المبارك');
 
   // Handle Joining a Circle by Code
   const handleJoinCircleSubmit = async (e: React.FormEvent) => {
@@ -334,14 +459,16 @@ export const JourneyPage: React.FC = () => {
         {/* Streak */}
         <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl">
           <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
-          <span className="text-xs font-black font-num text-amber-900">{user.streak} أيام</span>
+          <span className="text-xs font-black font-num text-amber-900">
+            {user.streak} {language === 'en' ? (user.streak === 1 ? 'day' : 'days') : 'أيام'}
+          </span>
         </div>
 
         {/* World Selector Badge */}
         <div className="bg-[#F0F9F0] border border-[#006304]/30 px-3 py-1 rounded-xl text-center">
           <span className="text-xs font-black text-[#006304] flex items-center gap-1.5">
             <BookOpen className="w-3.5 h-3.5 text-[#006304]" />
-            <span>جزء عم</span>
+            <span>{language === 'en' ? (user.track === 'juz_amma_tabarak' ? 'Amma & Tabarak' : 'Juz Amma') : (user.track === 'juz_amma_tabarak' ? 'عم وتبارك' : 'جزء عم')}</span>
           </span>
         </div>
 
@@ -354,7 +481,7 @@ export const JourneyPage: React.FC = () => {
         {/* Progress */}
         <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-xl text-[11px] font-black text-slate-700">
           <Trophy className="w-3.5 h-3.5 text-amber-500" />
-          <span className="font-num">{user.completedNodes.length}/85</span>
+          <span className="font-num">{user.completedNodes.length}/{allNodesOrdered.length || (weeks.length * 5)}</span>
         </div>
       </div>
 
@@ -367,10 +494,10 @@ export const JourneyPage: React.FC = () => {
             </div>
             <div>
               <h4 className="text-xs font-black text-slate-900 leading-tight">
-                انضم إلى حلقة معلمك القرآنية
+                {language === 'en' ? "Join Your Teacher's Quran Circle" : 'انضم إلى حلقة معلمك القرآنية'}
               </h4>
               <p className="text-[10px] text-gray-600 font-medium">
-                أدخل رمز الحلقة لمتابعة تلاوتك وتسميعك
+                {language === 'en' ? 'Enter circle code to submit recitations' : 'أدخل رمز الحلقة لمتابعة تلاوتك وتسميعك'}
               </p>
             </div>
           </div>
@@ -381,7 +508,7 @@ export const JourneyPage: React.FC = () => {
             }}
             className="bg-[#006304] hover:bg-[#005103] text-white font-bold text-[11px] px-3 py-1.5 rounded-xl shadow-xs transition-transform active:scale-95 whitespace-nowrap cursor-pointer"
           >
-            انضمام الآن
+            {language === 'en' ? 'Join Now' : 'انضمام الآن'}
           </button>
         </div>
       ) : (
@@ -392,13 +519,15 @@ export const JourneyPage: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-gray-500">حلقتك:</span>
+                <span className="text-[10px] font-bold text-gray-500">
+                  {language === 'en' ? 'Circle:' : 'حلقتك:'}
+                </span>
                 <h4 className="text-xs font-black text-[#006304]">
-                  {userCircle?.name || user.circleName || 'حلقة القرآن الكريم'}
+                  {userCircle?.name || user.circleName || (language === 'en' ? 'Quran Circle' : 'حلقة القرآن الكريم')}
                 </h4>
               </div>
               <p className="text-[10px] text-gray-600 font-medium">
-                المعلم: {userCircle?.teacherName || user.teacherName || 'الشيخ'}
+                {language === 'en' ? 'Teacher:' : 'المعلم:'} {userCircle?.teacherName || user.teacherName || (language === 'en' ? 'Teacher' : 'الشيخ')}
               </p>
             </div>
           </div>
@@ -406,53 +535,57 @@ export const JourneyPage: React.FC = () => {
             onClick={() => setShowCircleDetailsModal(true)}
             className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] px-2.5 py-1.5 rounded-xl transition-colors cursor-pointer"
           >
-            تفاصيل الحلقة
+            {language === 'en' ? 'Circle Info' : 'تفاصيل الحلقة'}
           </button>
         </div>
       )}
 
       {/* 2. Worlds Switcher Drawer Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none">
-        {WORLDS_DATA.map(world => {
-          const isSelected = selectedWorld === world.id;
+        {trackTabs.map(tab => {
+          const isSelected = selectedWorld === tab.id;
           return (
             <button
-              key={world.id}
-              onClick={() => setSelectedWorld(world.id as any)}
-              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shadow-2xs ${
+              key={tab.id}
+              onClick={() => setSelectedWorld(tab.id)}
+              className={`py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shadow-2xs cursor-pointer ${
                 isSelected
                   ? 'bg-[#006304] text-white ring-2 ring-[#006304]/40'
-                  : world.locked
+                  : tab.locked
                   ? 'bg-white border border-slate-200 text-slate-400 opacity-80'
-                  : 'bg-white border border-slate-200 text-slate-700'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
               }`}
             >
-              {renderWorldIcon(world.id)}
-              <span>{world.title}</span>
-              {world.locked && <Lock className="w-3 h-3 text-slate-400" />}
+              {renderWorldIcon(tab.id)}
+              <span>{tab.title}</span>
+              {tab.locked && <Lock className="w-3 h-3 text-slate-400" />}
             </button>
           );
         })}
       </div>
 
       {/* Selected World Locked Notice */}
-      {selectedWorld !== 'juz_amma' ? (
+      {selectedTab?.locked ? (
         <div className="bg-white border-2 border-[#C79545] rounded-3xl p-8 text-center space-y-4 my-8 shadow-lg">
           <div className="w-16 h-16 rounded-full bg-[#FFF8E7] border border-[#F9BF3B] text-[#C79545] flex items-center justify-center mx-auto shadow-sm">
             <Lock className="w-8 h-8 text-[#C79545]" />
           </div>
           <h3 className="font-heading font-black text-base text-slate-900">
-            {WORLDS_DATA.find(w => w.id === selectedWorld)?.title} مقفل حالياً
+            {selectedTab.title} {language === 'en' ? 'is Currently Locked' : 'مقفل حالياً'}
           </h3>
           <p className="text-xs text-slate-600 leading-relaxed max-w-xs mx-auto font-medium">
-            "أكمل جميع المحطات والأسابيع الـ ١٧ في رحلة جزء عم للتأهل التلقائي لفتح هذا العالم الشريف"
+            "{selectedTab.description}"
           </p>
           <button
-            onClick={() => setSelectedWorld('juz_amma')}
-            className="bg-[#006304] text-white font-bold px-6 py-2.5 rounded-xl text-xs shadow-md hover:bg-[#005103] transition-all flex items-center justify-center gap-2 mx-auto"
+            onClick={() => setSelectedWorld(user.track || 'juz_amma')}
+            className="bg-[#006304] text-white font-bold px-6 py-2.5 rounded-xl text-xs shadow-md hover:bg-[#005103] transition-all flex items-center justify-center gap-2 mx-auto cursor-pointer"
           >
             <BookOpen className="w-4 h-4" />
-            <span>العودة إلى رحلة جزء عم</span>
+            <span>
+              {language === 'en'
+                ? `Return to ${trackTabs[0]?.title || 'Current Track'}`
+                : `العودة إلى مسار ${trackTabs[0]?.title || 'المسار الحالي'}`}
+            </span>
           </button>
         </div>
       ) : (
@@ -462,52 +595,115 @@ export const JourneyPage: React.FC = () => {
           {/* Subtle Canvas Background Pattern Grid */}
           <div className="absolute inset-0 opacity-15 pointer-events-none bg-[radial-gradient(#006304_1px,transparent_1px)] [background-size:16px_16px]" />
 
-          {/* Top Peak Landmark: Golden Amma Citadel (Week 17 End) */}
+          {/* Top Peak Landmark: Golden Citadel for Track Completion */}
           <div className="relative z-20 mb-10 flex flex-col items-center text-center">
-            <div className={`p-5 rounded-3xl border-4 transition-all max-w-[310px] shadow-xl text-center relative ${
-              isFinalAmmaMastered
+            <div className={`p-5 rounded-3xl border-4 transition-all max-w-[320px] shadow-xl text-center relative ${
+              isFinalTrackMastered
                 ? 'bg-gradient-to-b from-[#FFF8E7] to-amber-100 border-[#F9BF3B] ring-8 ring-[#F9BF3B]/20'
                 : 'bg-white/95 border-amber-300/80'
             }`}>
               {/* Crown Emblem */}
               <div className="w-16 h-16 rounded-2xl bg-[#006304] border-2 border-[#F9BF3B] text-white flex items-center justify-center mx-auto shadow-md mb-2 relative">
                 <Crown className="w-8 h-8 text-[#F9BF3B]" />
-                {isFinalAmmaMastered && (
+                {isFinalTrackMastered && (
                   <Sparkles className="w-5 h-5 text-[#F9BF3B] absolute -top-2 -right-2" />
                 )}
               </div>
 
               <span className="inline-block bg-[#F9BF3B] text-black text-[10px] font-black px-2.5 py-0.5 rounded-full mb-1">
-                القمة الختامية
+                {language === 'en' ? 'Grand Summit' : 'القمة الختامية'}
               </span>
 
               <h3 className="font-heading font-black text-sm text-[#006304]">
-                قلعة إتقان جزء عم
+                {trackMasteryName}
               </h3>
               
               <p className="text-[11px] text-slate-600 font-medium mt-1 leading-relaxed">
-                التتويج الأكبر والحصول على الوسام الشريف لختم جزء عم المبارك
+                {trackMasteryDesc}
               </p>
 
-              {isFinalAmmaMastered ? (
-                <div className="mt-3 bg-[#006304] text-white p-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm">
-                  <ShieldCheck className="w-4 h-4 text-[#F9BF3B]" />
-                  <span>مبارك! أتممت رحلة جزء عم بنجاح</span>
+              {isFinalTrackMastered ? (
+                <div className="mt-3 space-y-2">
+                  <div className="bg-[#006304] text-white p-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm">
+                    <ShieldCheck className="w-4 h-4 text-[#F9BF3B]" />
+                    <span>
+                      {user.track === 'juz_amma_tabarak'
+                        ? (language === 'en' ? 'Completed Amma & Tabarak!' : 'مبارك! أتممت مسار عم وتبارك')
+                        : user.track === 'juz_qad_samia'
+                        ? (language === 'en' ? 'Completed Juz Qad Samia!' : 'مبارك! أتممت مسار جزء قد سمع')
+                        : (language === 'en' ? 'Completed Juz Amma!' : 'مبارك! أتممت مسار جزء عم')}
+                    </span>
+                  </div>
+
+                  {/* Contextual Next Track Transition Offer */}
+                  {user.track === 'juz_amma_tabarak' ? (
+                    <div className="bg-amber-50 border border-amber-300 rounded-2xl p-2.5 text-xs text-amber-950 space-y-1.5">
+                      <p className="font-bold text-[11px]">
+                        {language === 'en'
+                          ? 'Would you like to advance to Juz Qad Samia track?'
+                          : 'هل تود الانتقال إلى مسار جزء قد سمع؟'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTrack('juz_qad_samia')}
+                        className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-2 rounded-xl text-[11px] shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span>{language === 'en' ? 'Advance to Juz Qad Samia 🚀' : 'الانتقال إلى مسار جزء قد سمع 🚀'}</span>
+                      </button>
+                    </div>
+                  ) : user.track === 'juz_qad_samia' ? (
+                    <div className="bg-amber-50 border border-amber-300 rounded-2xl p-2.5 text-xs text-amber-950">
+                      <p className="font-bold text-[11px] leading-relaxed">
+                        {language === 'en'
+                          ? 'Upcoming Quranic tracks are under development and will be available soon insha\'Allah.'
+                          : 'المسارات القرآنية القادمة قيد التطوير وستكون متاحة قريباً بإذن الله ⏳'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-amber-50 border border-amber-300 rounded-2xl p-2.5 text-xs text-amber-950 space-y-1.5">
+                      <p className="font-bold text-[11px]">
+                        {language === 'en'
+                          ? 'Would you like to advance to Amma & Tabarak track?'
+                          : 'هل تود الانتقال إلى مسار عم وتبارك؟'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTrack('juz_amma_tabarak')}
+                        className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-2 rounded-xl text-[11px] shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span>{language === 'en' ? 'Advance to Amma & Tabarak 🚀' : 'الانتقال إلى مسار عم وتبارك 🚀'}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="mt-3 text-[10px] text-amber-900 font-bold bg-amber-50 py-1.5 px-3 rounded-xl border border-amber-200/80 flex items-center justify-center gap-1">
                   <Lock className="w-3.5 h-3.5 text-amber-700" />
-                  <span>يتطلب إكمال جميع الأسابيع الـ ١٧</span>
+                  <span>
+                    {language === 'en'
+                      ? `Requires completing all ${totalWeeksCount} weeks`
+                      : `يتطلب إكمال جميع الأسابيع الـ ${totalWeeksCount}`}
+                  </span>
                 </div>
               )}
             </div>
 
             {/* Unlocked Next Realm Preview Banner */}
-            <div className="mt-4 bg-white/90 border border-[#006304]/20 rounded-2xl p-3 max-w-[280px] text-center shadow-xs flex items-center justify-center gap-2">
+            <div className="mt-4 bg-white/90 border border-[#006304]/20 rounded-2xl p-3 max-w-[290px] text-center shadow-xs flex items-center justify-center gap-2">
               <Lock className="w-4 h-4 text-[#006304] shrink-0" />
               <div>
-                <span className="text-[#006304] block font-black text-xs">جزء تبارك (الساحة التالية)</span>
-                <span className="text-slate-500 block text-[10px] font-medium mt-0.5">ستفتح تلقائياً فور اجتياز القلم والختام</span>
+                <span className="text-[#006304] block font-black text-xs">
+                  {user.track === 'juz_amma_tabarak'
+                    ? (language === 'en' ? 'Juz Qad Samia (Next Realm)' : 'مسار جزء قد سمع (الساحة التالية)')
+                    : user.track === 'juz_qad_samia'
+                    ? (language === 'en' ? 'Upcoming Tracks' : 'المسارات القرآنية القادمة')
+                    : (language === 'en' ? 'Amma & Tabarak (Next Realm)' : 'مسار عم وتبارك (الساحة التالية)')}
+                </span>
+                <span className="text-slate-500 block text-[10px] font-medium mt-0.5">
+                  {user.track === 'juz_qad_samia'
+                    ? (language === 'en' ? 'In development - coming soon' : 'قيد التطوير وستتاح قريباً بإذن الله ⏳')
+                    : (language === 'en' ? 'Unlocks upon completing the finale' : 'ستفتح تلقائياً فور اجتياز الختام')}
+                </span>
               </div>
             </div>
           </div>
@@ -594,45 +790,45 @@ export const JourneyPage: React.FC = () => {
                           }`}>
                             {renderZoneIcon(biomeZone.id)}
                           </div>
-                          <div className="text-right min-w-0 py-0.5">
+                          <div className={`${language === 'en' ? 'text-left' : 'text-right'} min-w-0 py-0.5`}>
                             <span className="font-heading font-black text-xs sm:text-sm block leading-normal pt-0.5">
-                              {week.title}
+                              {language === 'en' ? t(week.title, 'en') : week.title}
                             </span>
                             <span className="text-[10px] text-slate-500 font-bold block leading-normal mt-0.5">
-                              {biomeZone.name}
+                              {language === 'en' ? t(biomeZone.name, 'en') : biomeZone.name}
                             </span>
                           </div>
                         </div>
 
                         {isWeekCompleted ? (
                           <span className="bg-[#F0F9F0] text-[#006304] border border-[#006304]/30 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shrink-0">
-                            <Check className="w-3 h-3" /> مكتمل
+                            <Check className="w-3 h-3" /> {language === 'en' ? 'Completed' : 'مكتمل'}
                           </span>
                         ) : isWeekActive ? (
                           <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shrink-0">
                             <Compass className="w-3 h-3 text-amber-700" />
-                            <span>المنطقة الحالية</span>
+                            <span>{language === 'en' ? 'Current Zone' : 'المنطقة الحالية'}</span>
                           </span>
                         ) : (
                           <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shrink-0">
-                            <Lock className="w-3 h-3" /> مقفلة
+                            <Lock className="w-3 h-3" /> {language === 'en' ? 'Locked' : 'مقفلة'}
                           </span>
                         )}
                       </div>
 
                       {/* Surahs Covered in Week - Full display on a dedicated line without truncation */}
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 text-right space-y-1.5">
+                      <div className={`mt-3 pt-2.5 border-t border-slate-100 ${language === 'en' ? 'text-left' : 'text-right'} space-y-1.5`}>
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
                             <BookOpen className="w-3.5 h-3.5 text-[#006304]" />
-                            <span>السور المقررة ({week.surahs.length}):</span>
+                            <span>{language === 'en' ? `Assigned Surahs (${week.surahs.length}):` : `السور المقررة (${week.surahs.length}):`}</span>
                           </span>
                           <span className="font-num text-[#006304] font-black text-[11px] bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
                             {percentWeek}%
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-800 font-extrabold leading-relaxed break-words whitespace-normal bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/60">
-                          {week.surahs.map(s => `سورة ${s}`).join(' • ')}
+                          {week.surahs.map(s => (language === 'en' ? `Surah ${getSurahName(s, 'en')}` : `سورة ${s}`)).join(' • ')}
                         </div>
                       </div>
                     </div>
@@ -805,7 +1001,7 @@ export const JourneyPage: React.FC = () => {
                                           : 'bg-emerald-600 text-white border-white'
                                       }`}
                                     >
-                                      {isPending ? 'قيد المراجعة' : `+${node.xpReward}XP`}
+                                      {isPending ? (language === 'en' ? 'Under Review' : 'قيد المراجعة') : `+${node.xpReward}XP`}
                                     </span>
                                   )}
                                 </motion.button>
@@ -837,7 +1033,7 @@ export const JourneyPage: React.FC = () => {
                                       className="absolute -top-12 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white text-[10px] font-bold px-3 py-1.5 rounded-xl shadow-xl flex items-center gap-1.5 whitespace-nowrap border border-slate-700 pointer-events-none"
                                     >
                                       <Info className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                                      <span>أكمل المحطة السابقة أولاً</span>
+                                      <span>{language === 'en' ? 'Complete previous milestone first' : 'أكمل المحطة السابقة أولاً'}</span>
                                     </motion.div>
                                   )}
                                 </AnimatePresence>
@@ -869,17 +1065,17 @@ export const JourneyPage: React.FC = () => {
                                     : isAvailable
                                     ? 'text-[#006304] font-bold'
                                     : 'text-slate-500 font-medium'
-                                }`}>
-                                  {node.title}
+                                 }`}>
+                                  {language === 'en' ? t(node.title, 'en') : node.title}
                                 </span>
                                 {isPending && (
                                   <span className="block text-[9px] text-amber-700 font-bold mt-0.5">
-                                    بانتظار اعتماد المعلم
+                                    {language === 'en' ? 'Pending Teacher Review' : 'بانتظار اعتماد المعلم'}
                                   </span>
                                 )}
                                 {isGate && (
                                   <span className="block text-[9px] text-[#C79545] font-bold mt-0.5">
-                                    اختبار إتقان الأسبوع
+                                    {language === 'en' ? 'Weekly Mastery Test' : 'اختبار إتقان الأسبوع'}
                                   </span>
                                 )}
                               </div>
@@ -891,7 +1087,7 @@ export const JourneyPage: React.FC = () => {
                             <div className="relative z-10 flex justify-center my-8 py-1">
                               <div className="bg-white/85 backdrop-blur-xs border border-emerald-600/20 px-3.5 py-1.5 rounded-full shadow-2xs flex items-center gap-2 text-[10px] text-[#006304] font-bold">
                                 <Landmark className="w-3.5 h-3.5 text-[#C79545] shrink-0" />
-                                <span>معلم منتصف المنطقة • استراحة السكينة والتدبر</span>
+                                <span>{language === 'en' ? 'Midpoint Landmark • Reflection Rest' : 'معلم منتصف المنطقة • استراحة السكينة والتدبر'}</span>
                               </div>
                             </div>
                           )}
@@ -904,7 +1100,7 @@ export const JourneyPage: React.FC = () => {
                   <div className="relative z-10 mt-6 pt-3 border-t border-emerald-600/15 flex items-center justify-center">
                     <div className="flex items-center gap-2 text-[11px] font-black text-[#006304] bg-white/90 border border-[#006304]/20 py-1.5 px-4 rounded-full shadow-2xs">
                       <Flag className="w-3.5 h-3.5 text-[#006304]" />
-                      <span>منطقة البداية • {week.title}</span>
+                      <span>{language === 'en' ? `Starting Zone • ${t(week.title, 'en')}` : `منطقة البداية • ${week.title}`}</span>
                     </div>
                   </div>
                 </div>
@@ -917,9 +1113,13 @@ export const JourneyPage: React.FC = () => {
             <div className="w-14 h-14 rounded-2xl bg-[#006304] text-white flex items-center justify-center shadow-md border-2 border-[#F9BF3B] mb-2">
               <Flag className="w-7 h-7 text-[#F9BF3B]" />
             </div>
-            <h4 className="text-sm font-black text-[#006304]">بداية رحلة ورد الشريفة</h4>
+            <h4 className="text-sm font-black text-[#006304]">
+              {language === 'en' ? 'Start of Noble Ward Journey' : 'بداية رحلة ورد الشريفة'}
+            </h4>
             <p className="text-xs text-slate-600 font-bold mt-0.5">
-              جزء عم • انطلق واصعد نحو القمة
+              {language === 'en' 
+                ? (user.track === 'juz_amma_tabarak' ? 'Amma & Tabarak • Embark and ascend to the summit' : 'Juz Amma • Embark and ascend to the summit') 
+                : (user.track === 'juz_amma_tabarak' ? 'عم وتبارك • انطلق واصعد نحو القمة' : 'جزء عم • انطلق واصعد نحو القمة')}
             </p>
           </div>
 
@@ -949,16 +1149,18 @@ export const JourneyPage: React.FC = () => {
               </div>
 
               <h3 className="font-heading font-black text-lg text-[#006304]">
-                صندوق مكافأة المحطة!
+                {language === 'en' ? 'Milestone Bonus Chest!' : 'صندوق مكافأة المحطة!'}
               </h3>
 
               <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                "أحسنت واصلت الحفظ والاجتهاد في درس ({chestModalItem.title}). إليك هدية تشجيعية للرحلة!"
+                {language === 'en'
+                  ? `Well done! You persevered in memorizing (${t(chestModalItem.title, 'en')}). Here is an encouragement gift for the journey!`
+                  : `"أحسنت واصلت الحفظ والاجتهاد في درس (${chestModalItem.title}). إليك هدية تشجيعية للرحلة!"`}
               </p>
 
               <div className="bg-[#F0F9F0] border border-[#006304]/30 rounded-2xl p-3 flex items-center justify-center gap-2 text-[#006304] font-black text-sm">
                 <Zap className="w-5 h-5 fill-[#006304]" />
-                <span>+{chestModalItem.xp} نقاط خبرة إضافية</span>
+                <span>+{chestModalItem.xp} {language === 'en' ? 'Bonus XP' : 'نقاط خبرة إضافية'}</span>
               </div>
 
               <button
@@ -968,10 +1170,10 @@ export const JourneyPage: React.FC = () => {
                   }
                   setChestModalItem(null);
                 }}
-                className="w-full bg-[#006304] text-white font-bold py-3 rounded-2xl text-xs shadow-md hover:bg-[#005103] transition-all flex items-center justify-center gap-1.5"
+                className="w-full bg-[#006304] text-white font-bold py-3 rounded-2xl text-xs shadow-md hover:bg-[#005103] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
-                <span>استلام وتكملة المسار</span>
+                <span>{language === 'en' ? 'Claim & Continue Journey' : 'استلام وتكملة المسار'}</span>
               </button>
             </motion.div>
           </div>
@@ -988,7 +1190,7 @@ export const JourneyPage: React.FC = () => {
                   <KeyRound className="w-4 h-4" />
                 </div>
                 <h3 className="font-heading font-black text-sm text-slate-900">
-                  الانضمام إلى حلقة قرآنية
+                  {language === 'en' ? 'Join a Quran Circle' : 'الانضمام إلى حلقة قرآنية'}
                 </h3>
               </div>
               <button
@@ -996,20 +1198,22 @@ export const JourneyPage: React.FC = () => {
                   setShowJoinModal(false);
                   setJoinFeedback(null);
                 }}
-                className="p-1 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200"
+                className="p-1 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <p className="text-xs text-gray-600 leading-relaxed font-medium">
-              أدخل رمز الحلقة الذي حصلت عليه من معلمك (مثال: WRD-101) لتنضم للحلقة وتتابع الحفظ سوياً.
+              {language === 'en'
+                ? 'Enter the circle code provided by your teacher (e.g., WRD-101) to join and follow memorization together.'
+                : 'أدخل رمز الحلقة الذي حصلت عليه من معلمك (مثال: WRD-101) لتنضم للحلقة وتتابع الحفظ سوياً.'}
             </p>
 
             <form onSubmit={handleJoinCircleSubmit} className="space-y-3">
               <div>
                 <label className="text-xs font-bold text-gray-700 block mb-1">
-                  رمز الحلقة:
+                  {language === 'en' ? 'Circle Code:' : 'رمز الحلقة:'}
                 </label>
                 <input
                   type="text"
@@ -1040,11 +1244,11 @@ export const JourneyPage: React.FC = () => {
                 className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-98"
               >
                 {joinLoading ? (
-                  <span>جاري التحقق...</span>
+                  <span>{language === 'en' ? 'Verifying...' : 'جاري التحقق...'}</span>
                 ) : (
                   <>
                     <CheckCircle className="w-4 h-4" />
-                    <span>تأكيد الانضمام للحلقة</span>
+                    <span>{language === 'en' ? 'Confirm Circle Join' : 'تأكيد الانضمام للحلقة'}</span>
                   </>
                 )}
               </button>
@@ -1063,12 +1267,12 @@ export const JourneyPage: React.FC = () => {
                   <Building className="w-4 h-4" />
                 </div>
                 <h3 className="font-heading font-black text-sm text-slate-900">
-                  تفاصيل حلقتك القرآنية
+                  {language === 'en' ? 'Your Quran Circle Details' : 'تفاصيل حلقتك القرآنية'}
                 </h3>
               </div>
               <button
                 onClick={() => setShowCircleDetailsModal(false)}
-                className="p-1 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200"
+                className="p-1 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1076,22 +1280,22 @@ export const JourneyPage: React.FC = () => {
 
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 font-bold">اسم الحلقة:</span>
-                <span className="font-black text-[#006304]">{userCircle?.name || user.circleName || 'حلقة القرآن'}</span>
+                <span className="text-gray-500 font-bold">{language === 'en' ? 'Circle Name:' : 'اسم الحلقة:'}</span>
+                <span className="font-black text-[#006304]">{userCircle?.name || user.circleName || (language === 'en' ? 'Quran Circle' : 'حلقة القرآن')}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 font-bold">المعلم المشرف:</span>
-                <span className="font-bold text-slate-900">{userCircle?.teacherName || user.teacherName || 'الشيخ'}</span>
+                <span className="text-gray-500 font-bold">{language === 'en' ? 'Supervising Teacher:' : 'المعلم المشرف:'}</span>
+                <span className="font-bold text-slate-900">{userCircle?.teacherName || user.teacherName || (language === 'en' ? 'Teacher' : 'الشيخ')}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 font-bold">رمز الحلقة:</span>
+                <span className="text-gray-500 font-bold">{language === 'en' ? 'Circle Code:' : 'رمز الحلقة:'}</span>
                 <span className="font-num font-black text-slate-900 bg-white px-2 py-0.5 rounded-lg border border-slate-200 dir-ltr">
                   {userCircle?.code || 'WRD-101'}
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 font-bold">عدد الزملاء في الحلقة:</span>
-                <span className="font-num font-black text-slate-900">{circleStudents.length} طلاب</span>
+                <span className="text-gray-500 font-bold">{language === 'en' ? 'Students in Circle:' : 'عدد الزملاء في الحلقة:'}</span>
+                <span className="font-num font-black text-slate-900">{circleStudents.length} {language === 'en' ? 'students' : 'طلاب'}</span>
               </div>
             </div>
 
@@ -1100,7 +1304,7 @@ export const JourneyPage: React.FC = () => {
               className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 rounded-xl text-xs border border-rose-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>مغادرة هذه الحلقة</span>
+              <span>{language === 'en' ? 'Leave This Circle' : 'مغادرة هذه الحلقة'}</span>
             </button>
           </div>
         </div>
@@ -1116,7 +1320,7 @@ export const JourneyPage: React.FC = () => {
                   ⚠️
                 </div>
                 <h3 className="font-heading font-black text-sm text-slate-900">
-                  يلزم الانضمام إلى حلقة قرآنية
+                  {language === 'en' ? 'Quran Circle Required' : 'يلزم الانضمام إلى حلقة قرآنية'}
                 </h3>
               </div>
               <button
@@ -1128,7 +1332,9 @@ export const JourneyPage: React.FC = () => {
             </div>
 
             <p className="text-xs text-gray-700 leading-relaxed font-medium">
-              يرجى الانضمام إلى حلقة أولاً لتتمكن من استخدام خاصية التسميع إلى معلم. انتقل إلى صفحة الحساب لاختيار حلقة تناسبك أو إدخال رمز معلمك.
+              {language === 'en'
+                ? 'Please join a circle first to submit recitations to a teacher. Go to your profile page to select a circle or enter your teacher code.'
+                : 'يرجى الانضمام إلى حلقة أولاً لتتمكن من استخدام خاصية التسميع إلى معلم. انتقل إلى صفحة الحساب لاختيار حلقة تناسبك أو إدخال رمز معلمك.'}
             </p>
 
             <div className="space-y-2 pt-1">
@@ -1140,7 +1346,7 @@ export const JourneyPage: React.FC = () => {
                 className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-2 shadow-2xs cursor-pointer"
               >
                 <Building className="w-4 h-4 text-[#F9BF3B]" />
-                <span>الانتقال إلى صفحة الحساب لاختيار حلقة</span>
+                <span>{language === 'en' ? 'Go to Profile to Select Circle' : 'الانتقال إلى صفحة الحساب لاختيار حلقة'}</span>
               </button>
 
               <button
@@ -1151,11 +1357,27 @@ export const JourneyPage: React.FC = () => {
                 className="w-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold py-2 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <KeyRound className="w-3.5 h-3.5" />
-                <span>إدخال رمز الحلقة السريع (WRD-...)</span>
+                <span>{language === 'en' ? 'Enter Quick Circle Code (WRD-...)' : 'إدخال رمز الحلقة السريع (WRD-...)'}</span>
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Track Selection Modal (Only shown if student hasn't chosen track yet) */}
+      {showTrackModal && (
+        <TrackSelectionModal
+          isOpen={showTrackModal}
+          currentTrack={user.track}
+          forceChoice={true}
+          onSelectTrack={async (newTrack) => {
+            await setTrack(newTrack);
+            if (typeof localStorage !== 'undefined') {
+              localStorage.setItem(`ward_track_chosen_${user.id}`, 'true');
+            }
+            setShowTrackModal(false);
+          }}
+        />
       )}
 
     </div>

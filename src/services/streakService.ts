@@ -1,27 +1,8 @@
-export interface StreakCalculationResult {
-  streak: number;
-  longestStreak: number;
-  lastActiveDate: string;
-  completedDates: string[];
-  streakIncreased: boolean;
-  streakReset: boolean;
-  isFirstToday: boolean;
-}
-
-export interface DayStatus {
-  dateStr: string;
-  dayName: string;
-  dayNumber: number;
-  isCompleted: boolean;
-  isToday: boolean;
-  isFuture: boolean;
-}
-
-const ARABIC_DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-
 /**
- * Returns today's date formatted as YYYY-MM-DD in local timezone
+ * Streak and Activity Tracking Service
+ * Manages daily Quran activity streaks, calendar calculations, and date helpers.
  */
+
 export function getTodayDateString(): string {
   const d = new Date();
   const year = d.getFullYear();
@@ -30,9 +11,6 @@ export function getTodayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Returns yesterday's date formatted as YYYY-MM-DD
- */
 export function getYesterdayDateString(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -42,96 +20,101 @@ export function getYesterdayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Calculates updated streak information when a user completes a daily activity/node
- */
+export interface StreakUpdateResult {
+  streak: number;
+  longestStreak: number;
+  streakMaintained: boolean;
+  isNewDay: boolean;
+  completedDates: string[];
+}
+
 export function updateStreakOnActivity(
-  currentStreak: number = 0,
-  longestStreak: number = 0,
-  lastActiveDate: string = '',
+  currentStreak = 0,
+  longestStreak = 0,
+  lastActiveDate?: string,
   completedDates: string[] = []
-): StreakCalculationResult {
+): StreakUpdateResult {
   const today = getTodayDateString();
   const yesterday = getYesterdayDateString();
 
-  const updatedCompletedDates = Array.from(new Set([...completedDates, today]));
+  const newCompletedDates = Array.isArray(completedDates) ? [...completedDates] : [];
+  if (!newCompletedDates.includes(today)) {
+    newCompletedDates.push(today);
+  }
 
-  // If already completed an activity today
+  // If already active today
   if (lastActiveDate === today) {
+    const s = Math.max(1, currentStreak);
     return {
-      streak: Math.max(1, currentStreak),
-      longestStreak: Math.max(currentStreak, longestStreak, 1),
-      lastActiveDate: today,
-      completedDates: updatedCompletedDates,
-      streakIncreased: false,
-      streakReset: false,
-      isFirstToday: false,
+      streak: s,
+      longestStreak: Math.max(longestStreak || 0, s),
+      streakMaintained: true,
+      isNewDay: false,
+      completedDates: newCompletedDates,
     };
   }
 
-  let newStreak = 1;
-  let streakIncreased = false;
-  let streakReset = false;
-
+  // If consecutive day from yesterday
   if (lastActiveDate === yesterday) {
-    // Continued streak from yesterday!
-    newStreak = currentStreak + 1;
-    streakIncreased = true;
-  } else if (!lastActiveDate) {
-    // First time starting streak
-    newStreak = 1;
-    streakIncreased = true;
-  } else {
-    // Missed 1 or more days -> streak resets to 1 today
-    newStreak = 1;
-    streakReset = true;
+    const newStreak = (currentStreak || 0) + 1;
+    return {
+      streak: newStreak,
+      longestStreak: Math.max(longestStreak || 0, newStreak),
+      streakMaintained: true,
+      isNewDay: true,
+      completedDates: newCompletedDates,
+    };
   }
 
-  const newLongestStreak = Math.max(newStreak, longestStreak);
-
+  // Break in streak or first activity
+  const newStreak = 1;
   return {
     streak: newStreak,
-    longestStreak: newLongestStreak,
-    lastActiveDate: today,
-    completedDates: updatedCompletedDates,
-    streakIncreased,
-    streakReset,
-    isFirstToday: true,
+    longestStreak: Math.max(longestStreak || 0, newStreak),
+    streakMaintained: false,
+    isNewDay: true,
+    completedDates: newCompletedDates,
   };
 }
 
-/**
- * Generates status for the current week or last 7 days for calendar display
- */
-export function getWeeklyStreakCalendar(completedDates: string[] = []): DayStatus[] {
-  const todayStr = getTodayDateString();
-  const result: DayStatus[] = [];
-  const completedSet = new Set(completedDates);
+export interface DayCalendarItem {
+  dayName: string;
+  dayNumber: number;
+  dateStr: string;
+  isCompleted: boolean;
+  isToday: boolean;
+  isPast: boolean;
+}
 
-  // Generate last 7 days ending today (or recent 7 days window: today - 6 days to today)
+const ARABIC_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+export function getWeeklyStreakCalendar(completedDates: string[] = []): DayCalendarItem[] {
+  const todayStr = getTodayDateString();
+  const calendar: DayCalendarItem[] = [];
+  const completedSet = new Set(completedDates || []);
+
+  // Generate 7 days ending today
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
-
-    const dayName = ARABIC_DAYS[d.getDay()];
-    const dayNumber = d.getDate();
+    const dayOfWeek = d.getDay();
     const isToday = dateStr === todayStr;
-    const isCompleted = completedSet.has(dateStr);
+    const isPast = i > 0;
 
-    result.push({
+    calendar.push({
+      dayName: ARABIC_DAYS[dayOfWeek],
+      dayNumber: d.getDate(),
       dateStr,
-      dayName,
-      dayNumber,
-      isCompleted,
+      isCompleted: completedSet.has(dateStr),
       isToday,
-      isFuture: false,
+      isPast,
     });
   }
 
-  return result;
+  return calendar;
 }
+

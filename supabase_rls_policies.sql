@@ -29,6 +29,10 @@ WITH CHECK (true);
 -- 2. جدول ملفات المستخدمين (profiles)
 ALTER TABLE IF EXISTS profiles ENABLE ROW LEVEL SECURITY;
 
+-- إضافة حقلي المسار واللغة (Track & Language)
+ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS track text DEFAULT 'juz_amma';
+ALTER TABLE IF EXISTS profiles ADD COLUMN IF NOT EXISTS language text DEFAULT 'ar';
+
 -- السماح بقراءة الملفات الشخصية
 DROP POLICY IF EXISTS "Allow public read on profiles" ON profiles;
 CREATE POLICY "Allow public read on profiles"

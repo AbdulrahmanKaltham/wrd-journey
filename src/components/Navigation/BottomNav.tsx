@@ -3,14 +3,14 @@ import { useSupabase } from '../../context/SupabaseContext';
 import { Home, Map, Tent, Trophy, User } from 'lucide-react';
 
 export const BottomNav: React.FC = () => {
-  const { activeTab, setActiveTab } = useSupabase();
+  const { activeTab, setActiveTab, language } = useSupabase();
 
   const navItems = [
-    { id: 'home' as const, label: 'الرئيسية', icon: Home },
-    { id: 'journey' as const, label: 'الرحلة', icon: Map },
-    { id: 'camp' as const, label: 'المخيم', icon: Tent },
-    { id: 'achievements' as const, label: 'الإنجازات', icon: Trophy },
-    { id: 'profile' as const, label: 'حسابي', icon: User },
+    { id: 'home' as const, label: language === 'en' ? 'Home' : 'الرئيسية', icon: Home },
+    { id: 'journey' as const, label: language === 'en' ? 'Journey' : 'الرحلة', icon: Map },
+    { id: 'camp' as const, label: language === 'en' ? 'Camp' : 'المخيم', icon: Tent },
+    { id: 'achievements' as const, label: language === 'en' ? 'Badges' : 'الأوسمة', icon: Trophy },
+    { id: 'profile' as const, label: language === 'en' ? 'Profile' : 'حسابي', icon: User },
   ];
 
   return (

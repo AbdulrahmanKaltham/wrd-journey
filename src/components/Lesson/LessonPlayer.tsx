@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import { t } from '../../lib/i18n';
 import { AvatarDisplay } from '../Avatar/AvatarDisplay';
 import { QuizEngine } from '../Quiz/QuizEngine';
 import { NodeItem, Week, NodeSubmission } from '../../types';
@@ -37,7 +38,7 @@ interface LessonPlayerProps {
 }
 
 export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose }) => {
-  const { user, completeNode, submitNodeForReview, switchRecitationType, openWeekRewardModal, userCircle, setActiveTab } = useApp();
+  const { user, completeNode, submitNodeForReview, switchRecitationType, openWeekRewardModal, userCircle, setActiveTab, language } = useApp();
   
   // Audio state
   const surahsList = node.surahsList && node.surahsList.length > 0 ? node.surahsList : week.surahs;
@@ -244,6 +245,40 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
     }
   };
 
+  // Submit Gate Exam Request in Halaqah (Only in-halaqah oral exam)
+  const handleRequestGateExamInHalaqah = async () => {
+    setIsSubmitting(true);
+    try {
+      await submitNodeForReview(
+        node.id,
+        week.id,
+        'halaqah',
+        '',
+        '',
+        '',
+        'اختبار بوابة الأسبوع',
+        week.surahs.join(' - '),
+        week.surahs
+      );
+      setSubmissionType('halaqah');
+      setSubmissionSuccess(true);
+      setLatestSubmission({
+        nodeId: node.id,
+        weekId: week.id,
+        nodeTitle: 'اختبار بوابة الأسبوع',
+        surahName: week.surahs.join(' - '),
+        surahsList: week.surahs,
+        type: 'halaqah',
+        submittedAt: new Date().toISOString(),
+        status: 'pending_teacher_review',
+      });
+    } catch (err) {
+      console.error('Failed to submit gate halaqah exam request:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Submit Self Recording Choice
   const handleSubmitRecording = async () => {
     if (!recordedBlob) return;
@@ -336,21 +371,22 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
 
   // Node Type icons and colors
   const getTypeInfo = () => {
+    const isEn = language === 'en';
     switch (node.type) {
       case 'listen':
-        return { label: 'استماع وترتيل', icon: <Headphones className="w-5 h-5 text-white" />, color: 'bg-blue-500' };
+        return { label: isEn ? 'Listening & Recitation' : 'استماع وترتيل', icon: <Headphones className="w-5 h-5 text-white" />, color: 'bg-blue-500' };
       case 'memorize':
-        return { label: 'تكرار وحفظ', icon: <BookOpen className="w-5 h-5 text-white" />, color: 'bg-emerald-600' };
+        return { label: isEn ? 'Repetition & Memorization' : 'تكرار وحفظ', icon: <BookOpen className="w-5 h-5 text-white" />, color: 'bg-emerald-600' };
       case 'recite':
-        return { label: 'تسميع واعتماد', icon: <Mic className="w-5 h-5 text-white" />, color: 'bg-purple-600' };
+        return { label: isEn ? 'Recitation & Verification' : 'تسميع واعتماد', icon: <Mic className="w-5 h-5 text-white" />, color: 'bg-purple-600' };
       case 'review':
-        return { label: 'مراجعة وتثبيت', icon: <RotateCcw className="w-5 h-5 text-white" />, color: 'bg-amber-500' };
+        return { label: isEn ? 'Review & Mastery' : 'مراجعة وتثبيت', icon: <RotateCcw className="w-5 h-5 text-white" />, color: 'bg-amber-500' };
       case 'quiz':
-        return { label: 'اختبار قصير', icon: <Target className="w-5 h-5 text-white" />, color: 'bg-indigo-600' };
+        return { label: isEn ? 'Short Quiz' : 'اختبار قصير', icon: <Target className="w-5 h-5 text-white" />, color: 'bg-indigo-600' };
       case 'gate':
-        return { label: 'بوابة الاختبار والعبور', icon: <Trophy className="w-5 h-5 text-[#F9BF3B]" />, color: 'bg-[#C79545]' };
+        return { label: isEn ? 'Gate Exam & Passage' : 'بوابة الاختبار والعبور', icon: <Trophy className="w-5 h-5 text-[#F9BF3B]" />, color: 'bg-[#C79545]' };
       default:
-        return { label: 'درس', icon: <Star className="w-5 h-5 text-white" />, color: 'bg-green-600' };
+        return { label: isEn ? 'Lesson' : 'درس', icon: <Star className="w-5 h-5 text-white" />, color: 'bg-green-600' };
     }
   };
 
@@ -371,11 +407,11 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
                   {typeInfo.label}
                 </span>
                 <span className="text-[10px] text-green-200 font-bold">
-                  {week.title}
+                  {language === 'en' ? t(week.title, 'en') : week.title}
                 </span>
               </div>
               <h3 className="font-heading font-extrabold text-base text-white mt-0.5">
-                {node.title}
+                {language === 'en' ? t(node.title, 'en') : node.title}
               </h3>
             </div>
           </div>
@@ -1414,34 +1450,190 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
                 </div>
               )}
 
-              {/* MODE 5: QUIZ & GATE (اختبار قصير / بوابة الأسبوع) */}
-              {(node.type === 'quiz' || node.type === 'gate') && (
+              {/* MODE 5: QUIZ (اختبار قصير عادي) */}
+              {node.type === 'quiz' && (
                 <QuizEngine
                   week={week}
                   isFinalExam={week.id === 17 || node.id.includes('w17')}
                   onPass={(xpEarned) => {
-                    if (node.type === 'gate') {
-                      // Prepare newly unlocked badge IDs
-                      const newBadgeIds: string[] = [];
-                      if (user.completedNodes.length === 0) newBadgeIds.push('first_step');
-                      if (week.id === 1 && !user.unlockedBadges.includes('week_1_done')) newBadgeIds.push('week_1_done');
-                      if (week.id === 17 && !user.unlockedBadges.includes('juz_amma_master')) newBadgeIds.push('juz_amma_master');
-
-                      openWeekRewardModal({
-                        week,
-                        gateNode: node,
-                        xpEarned: xpEarned + 50,
-                        unlockedBadgeIds: newBadgeIds,
-                      });
-                      onClose();
-                    } else {
-                      completeNode(node.id, week.id, xpEarned);
-                      onClose();
-                    }
+                    completeNode(node.id, week.id, xpEarned);
+                    onClose();
                   }}
                   onClose={onClose}
                 />
               )}
+
+              {/* MODE 6: GATE EXAM (اختبار بوابة الأسبوع في الحلقة أمام المعلم) */}
+              {node.type === 'gate' && (() => {
+                const isGateApproved = user.completedNodes.includes(node.id) || existingSubmission?.status === 'approved';
+                const isGatePending = !isGateApproved && (submissionSuccess || existingSubmission?.status === 'pending' || existingSubmission?.status === 'pending_teacher_review');
+                const isGateNeedsPractice = !isGateApproved && !isGatePending && (existingSubmission?.status === 'reviewed' || existingSubmission?.status === 'needs_practice');
+
+                return (
+                  <div className="space-y-4 text-right">
+                    {/* Approved State */}
+                    {isGateApproved && (
+                      <div className="bg-emerald-50 border-2 border-emerald-300 rounded-3xl p-5 text-center space-y-3 shadow-xs">
+                        <div className="w-16 h-16 rounded-full bg-emerald-100 border border-emerald-300 mx-auto flex items-center justify-center text-emerald-700 shadow-xs">
+                          <Trophy className="w-8 h-8 text-[#006304]" />
+                        </div>
+                        <div>
+                          <span className="inline-block bg-emerald-200/80 text-emerald-900 text-xs font-black px-3 py-1 rounded-full mb-1.5 border border-emerald-300">
+                            {existingSubmission?.rating || 'مجتاز بنجاح 🏆'}
+                          </span>
+                          <h3 className="font-heading font-black text-lg text-slate-900">
+                            مبارك! اجتزت اختبار بوابة الأسبوع بنجاح
+                          </h3>
+                          <p className="text-xs text-slate-600 font-medium mt-1 leading-relaxed">
+                            تم اعتماد اختبارك الشفهي في الحلقة من قِبل فضيلة المعلم وفتح الأسبوع التالي.
+                          </p>
+                        </div>
+                        {existingSubmission?.teacherNotes && (
+                          <div className="bg-white/90 p-3 rounded-2xl border border-emerald-200 text-right text-xs text-slate-800">
+                            <span className="font-black text-[#006304] block mb-1">ملاحظات المعلم:</span>
+                            <p className="leading-relaxed font-medium">{existingSubmission.teacherNotes}</p>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={onClose}
+                          className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-3.5 rounded-2xl text-xs shadow-md transition-colors cursor-pointer"
+                        >
+                          العودة إلى خريطة الرحلة
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Pending State */}
+                    {isGatePending && (
+                      <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-5 text-center space-y-3 shadow-xs">
+                        <div className="w-16 h-16 rounded-full bg-amber-100 border border-amber-300 mx-auto flex items-center justify-center text-amber-700 shadow-xs animate-pulse">
+                          <Clock className="w-8 h-8 text-amber-600" />
+                        </div>
+                        <div>
+                          <span className="inline-block bg-amber-200/80 text-amber-900 text-xs font-black px-3 py-1 rounded-full mb-1.5 border border-amber-300">
+                            حالة الاختبار: بانتظار المعلم في الحلقة
+                          </span>
+                          <h3 className="font-heading font-black text-lg text-slate-900">
+                            تم تسجيل طلب اختبار البوابة في الحلقة
+                          </h3>
+                          <p className="text-xs text-slate-600 font-medium mt-1 leading-relaxed">
+                            طلبك مسجل الآن لدى فضيلة المعلم. سيقوم المعلم باختبارك شفهياً في الحلقة القادمة عبر 4 مقاطع قرآنية واعتماد اجتيازك وفتح الأسبوع التالي.
+                          </p>
+                        </div>
+                        <div className="bg-white/90 p-3.5 rounded-2xl border border-amber-200 text-right text-xs space-y-1.5">
+                          <span className="font-black text-amber-900 block">📖 السور المقررة في الاختبار:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {week.surahs.map((s) => (
+                              <span key={s} className="bg-amber-100/80 text-amber-900 text-xs font-bold px-2.5 py-1 rounded-lg border border-amber-200">
+                                سورة {s}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onClose}
+                          className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3.5 rounded-2xl text-xs shadow-md transition-colors cursor-pointer"
+                        >
+                          حسناً، العودة إلى الخريطة
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Needs Practice / Retest State */}
+                    {isGateNeedsPractice && (
+                      <div className="bg-orange-50 border-2 border-orange-300 rounded-3xl p-5 text-center space-y-3 shadow-xs">
+                        <div className="w-16 h-16 rounded-full bg-orange-100 border border-orange-300 mx-auto flex items-center justify-center text-orange-700 shadow-xs">
+                          <RotateCcw className="w-8 h-8 text-orange-600" />
+                        </div>
+                        <div>
+                          <span className="inline-block bg-orange-200 text-orange-900 text-xs font-black px-3 py-1 rounded-full mb-1.5 border border-orange-300">
+                            توجيه المعلم: إعادة الاختبار والتدريب
+                          </span>
+                          <h3 className="font-heading font-black text-lg text-slate-900">
+                            تحتاج لمراجعة بعض الآيات
+                          </h3>
+                          {existingSubmission?.teacherNotes && (
+                            <div className="bg-white/95 p-3 rounded-2xl border border-orange-200 text-right text-xs text-slate-800 mt-2">
+                              <span className="font-black text-orange-900 block mb-1">ملاحظات وتوجيهات المعلم:</span>
+                              <p className="leading-relaxed font-medium">{existingSubmission.teacherNotes}</p>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isSubmitting}
+                          onClick={handleRequestGateExamInHalaqah}
+                          className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-3.5 rounded-2xl text-xs shadow-md transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          <Trophy className="w-4 h-4 text-[#F9BF3B]" />
+                          <span>{isSubmitting ? 'جاري إرسال الطلب...' : 'إعادة طلب اختبار البوابة في الحلقة'}</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Initial State (Not submitted yet) */}
+                    {!isGateApproved && !isGatePending && !isGateNeedsPractice && (
+                      <div className="space-y-4">
+                        {/* Information Banner */}
+                        <div className="bg-gradient-to-br from-[#006304]/10 via-[#006304]/5 to-transparent border-2 border-[#006304]/20 rounded-3xl p-4 sm:p-5 space-y-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-[#006304] text-white flex items-center justify-center shrink-0 shadow-md">
+                              <Trophy className="w-6 h-6 text-[#F9BF3B]" />
+                            </div>
+                            <div>
+                              <h3 className="font-heading font-black text-base text-slate-900">
+                                اختبار بوابة {week.title}
+                              </h3>
+                              <p className="text-xs text-gray-600 font-medium mt-0.5">
+                                اختبار شفهي في الحلقة أمام المعلم للتأكد من إتقان الحفظ وأحكام التجويد
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Surahs Included */}
+                          <div className="bg-white/90 p-3.5 rounded-2xl border border-emerald-200/80 space-y-2">
+                            <span className="text-xs font-black text-[#006304] flex items-center gap-1.5">
+                              <BookOpen className="w-4 h-4" />
+                              <span>السور المقررة في هذا الاختبار:</span>
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {week.surahs.map((surah) => (
+                                <span
+                                  key={surah}
+                                  className="bg-[#006304]/10 text-[#006304] border border-[#006304]/20 px-3 py-1 rounded-xl text-xs font-black shadow-2xs"
+                                >
+                                  سورة {surah}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Notice */}
+                          <div className="text-[11px] text-slate-600 bg-amber-50/80 p-3 rounded-2xl border border-amber-200/70 flex items-start gap-2">
+                            <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <p className="leading-relaxed font-medium">
+                              يقوم المعلم في حلقة التحفيظ باختبارك شفهياً عبر ٤ مقاطع قرآنية عشوائية من منهج هذا الأسبوع للتأكد من تمام الضبط والإتقان قبل فتح الأسبوع التالي.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Single Primary Action Button (Strictly In-Halaqah, No Self Recording) */}
+                        <button
+                          type="button"
+                          disabled={isSubmitting}
+                          onClick={handleRequestGateExamInHalaqah}
+                          className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2.5 text-sm cursor-pointer disabled:opacity-50 group hover:shadow-xl active:scale-[0.99]"
+                        >
+                          <Trophy className="w-5 h-5 text-[#F9BF3B] group-hover:scale-110 transition-transform" />
+                          <span>{isSubmitting ? 'جاري إرسال الطلب للمعلم...' : 'طلب اختبار البوابة في الحلقة'}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>

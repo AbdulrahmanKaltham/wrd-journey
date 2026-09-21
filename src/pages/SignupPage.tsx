@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { useSupabase } from '../context/SupabaseContext';
-import { createTeacher, createStudent } from '../services/supabaseService';
-import { supabase } from '../lib/supabaseClient';
 import {
   User,
   GraduationCap,
@@ -12,6 +10,7 @@ import {
   ArrowRight,
   AlertCircle,
   CheckCircle2,
+  Globe,
 } from 'lucide-react';
 
 interface SignupPageProps {
@@ -20,7 +19,7 @@ interface SignupPageProps {
 }
 
 export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess }) => {
-  const { signUp, signOut, refreshProfile, triggerCelebration } = useSupabase();
+  const { signUp, signOut, triggerCelebration, language, setLanguage, t } = useSupabase();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,8 +29,13 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
 
+  const isRtl = language === 'ar';
+
+  const toggleLanguage = () => {
+    setLanguage(language === 'ar' ? 'en' : 'ar');
+  };
+
   const handleBackToLoginClick = async () => {
-    // If a partial session without profile was created, sign out to ensure clean state
     try {
       await signOut();
     } catch {}
@@ -46,31 +50,30 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
     setInfoMsg('');
 
     if (!name.trim()) {
-      setErrorMsg('يرجى كتابة الاسم الكريم');
+      setErrorMsg(isRtl ? 'يرجى كتابة الاسم الكريم' : 'Please enter your name');
       return;
     }
     if (!email.trim() || !password.trim()) {
-      setErrorMsg('يرجى كتابة البريد الإلكتروني وكلمة المرور');
+      setErrorMsg(isRtl ? 'يرجى كتابة البريد الإلكتروني وكلمة المرور' : 'Please enter email and password');
       return;
     }
     if (password.length < 6) {
-      setErrorMsg('كلمة المرور يجب أن تكون 6 خانات على الأقل');
+      setErrorMsg(isRtl ? 'كلمة المرور يجب أن تكون 6 خانات على الأقل' : 'Password must be at least 6 characters');
       return;
     }
 
     setLoading(true);
-    console.log('🚀 [SignupFlow] Step 1: Initiating signup for:', { email: email.trim(), role, gender, name: name.trim() });
 
     try {
-      // إنشاء الحساب والملف الشخصي في Supabase فقط (بدون حلقة)
-      const signupRes = await signUp(email.trim(), password, {
+      await signUp(email.trim(), password, {
         name: name.trim(),
         role,
         gender,
+        track: 'juz_amma',
+        language,
       });
 
-      console.log('🎉 [SignupFlow] Signup completed successfully:', signupRes);
-      setInfoMsg('تم إنشاء الحساب والملف الشخصي بنجاح!');
+      setInfoMsg(isRtl ? 'تم إنشاء الحساب والملف الشخصي بنجاح!' : 'Account created successfully!');
       if (triggerCelebration) triggerCelebration();
 
       if (onSuccess) {
@@ -81,21 +84,17 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
       const raw = error.message || error.error_description || (typeof error === 'string' ? error : '');
       const lower = raw.toLowerCase();
       if (lower.includes('already registered') || lower.includes('already exists') || lower.includes('user already registered')) {
-        setErrorMsg('هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.');
+        setErrorMsg(isRtl ? 'هذا البريد الإلكتروني مسجل مسبقاً. يمكنك تسجيل الدخول مباشرة.' : 'Email is already registered. Please sign in directly.');
       } else if (lower.includes('password should be at least') || lower.includes('weak_password') || lower.includes('password is too short')) {
-        setErrorMsg('كلمة المرور ضعيفة (يجب أن تتكون من 6 أحرف/أرقام على الأقل).');
+        setErrorMsg(isRtl ? 'كلمة المرور ضعيفة (يجب أن تتكون من 6 أحرف/أرقام على الأقل).' : 'Password is too short (minimum 6 characters).');
       } else if (lower.includes('rate limit') || lower.includes('over_email_send_rate_limit')) {
-        setErrorMsg('تم تجاوز حد إرسال رسائل التأكيد مؤقتاً. يرجى إيقاف تأكيد البريد (Confirm email) من إعدادات Supabase للسماح بالتسجيل الفوري غير المحدود.');
-      } else if (lower.includes('valid email') || lower.includes('invalid email') || lower.includes('unable to validate email')) {
-        setErrorMsg('البريد الإلكتروني المدخل غير صالح. يرجى كتابة بريد إلكتروني صحيح.');
-      } else if (lower.includes('email not confirmed') || lower.includes('confirm email')) {
-        setErrorMsg('تأكيد البريد الإلكتروني مطلوب. يرجى التحقق من رسائل بريدك الإلكتروني لتأكيد الحساب أو إيقاف Confirm email في إعدادات Supabase.');
-      } else if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('connection')) {
-        setErrorMsg('خطأ في الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
+        setErrorMsg(isRtl ? 'تم تجاوز حد إرسال الرسائل مؤقتاً. يرجى المحاولة بعد قليل.' : 'Email rate limit exceeded. Please try again shortly.');
+      } else if (lower.includes('valid email') || lower.includes('invalid email')) {
+        setErrorMsg(isRtl ? 'البريد الإلكتروني المدخل غير صالح.' : 'Invalid email address.');
       } else if (raw) {
-        setErrorMsg(`تعذر إنشاء الحساب: ${raw}`);
+        setErrorMsg(raw);
       } else {
-        setErrorMsg('حدث خطأ أثناء إنشاء الحساب. يرجى مراجعة البيانات والمحاولة مجدداً.');
+        setErrorMsg(isRtl ? 'حدث خطأ أثناء إنشاء الحساب.' : 'An error occurred during account creation.');
       }
     } finally {
       setLoading(false);
@@ -103,80 +102,89 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9F5] flex items-center justify-center p-4 font-arabic antialiased text-right">
-      <div className="bg-white border-2 border-[#E0E0E0] rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-        {/* Header */}
-        <div className="text-center space-y-1.5 pt-1">
-          <div className="w-14 h-14 rounded-2xl bg-[#F0F9F0] border-2 border-[#006304] text-[#006304] flex items-center justify-center text-3xl mx-auto shadow-xs">
+    <div className="min-h-screen bg-[#F8F9F5] flex flex-col justify-center items-center py-6 px-4 font-arabic">
+      {/* Language Switcher */}
+      <div className="w-full max-w-sm flex justify-end mb-2">
+        <button
+          onClick={toggleLanguage}
+          type="button"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-gray-200 text-xs font-bold text-gray-600 hover:text-[#006304] hover:border-[#006304] transition-colors shadow-2xs cursor-pointer"
+        >
+          <Globe className="w-3.5 h-3.5" />
+          <span>{language === 'ar' ? 'English' : 'العربية'}</span>
+        </button>
+      </div>
+
+      <div className="w-full max-w-sm space-y-4">
+        <div className="text-center space-y-1.5">
+          <div className="w-14 h-14 rounded-2xl bg-[#F0F9F0] border-2 border-[#006304] text-[#006304] flex items-center justify-center text-2xl mx-auto shadow-2xs">
             🌱
           </div>
           <h2 className="font-heading font-black text-xl text-slate-900">
-            إنشاء حساب جديد في رحلة وِرد
+            {t('signup')}
           </h2>
           <p className="text-xs text-gray-500 font-medium">
-            انضم إلى مجتمع التلاوة والحفظ المتقن
+            {t('appSubtitle')}
           </p>
         </div>
 
-        {/* Signup Form */}
-        <form onSubmit={handleSubmit} className="space-y-3.5">
+        <div className="bg-white p-5 sm:p-6 shadow-sm rounded-3xl border-2 border-gray-100 space-y-4">
+          {/* Signup Form */}
+          <form onSubmit={handleSubmit} className="space-y-3.5">
           {/* Name */}
           <div>
             <label className="text-xs font-bold text-gray-700 block mb-1">
-              الاسم الكامل:
+              {t('name')}
             </label>
             <div className="relative">
               <input
                 type="text"
-                placeholder="الاسم"
+                placeholder={isRtl ? 'الاسم الكامل' : 'Full Name'}
                 value={name}
                 onChange={e => setName(e.target.value)}
-                className="w-full pl-3 pr-9 py-2 rounded-xl border-2 border-gray-200 text-xs font-bold text-slate-900 focus:border-[#006304] focus:outline-hidden"
+                className="w-full px-3 py-2 rounded-xl border-2 border-gray-200 text-xs font-bold text-slate-900 focus:border-[#006304] focus:outline-hidden"
                 required
               />
-              <User className="w-4 h-4 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
             </div>
           </div>
 
           {/* Email */}
           <div>
             <label className="text-xs font-bold text-gray-700 block mb-1">
-              البريد الإلكتروني:
+              {t('email')}
             </label>
             <div className="relative">
               <input
                 type="email"
-                placeholder="البريد"
+                placeholder="name@example.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full pl-3 pr-9 py-2 rounded-xl border-2 border-gray-200 text-xs font-bold text-slate-900 focus:border-[#006304] focus:outline-hidden text-left dir-ltr"
+                className="w-full px-3 py-2 rounded-xl border-2 border-gray-200 text-xs font-bold text-slate-900 focus:border-[#006304] focus:outline-hidden text-left dir-ltr"
                 required
               />
-              <Mail className="w-4 h-4 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
             </div>
           </div>
 
           {/* Password */}
           <div>
             <label className="text-xs font-bold text-gray-700 block mb-1">
-              كلمة المرور:
+              {t('password')}
             </label>
             <div className="relative">
               <input
                 type="password"
-                placeholder="كلمة المرور"
+                placeholder="••••••••"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full pl-3 pr-9 py-2 rounded-xl border-2 border-gray-200 text-xs font-bold text-slate-900 focus:border-[#006304] focus:outline-hidden text-left dir-ltr"
+                className="w-full px-3 py-2 rounded-xl border-2 border-gray-200 text-xs font-bold text-slate-900 focus:border-[#006304] focus:outline-hidden text-left dir-ltr"
                 required
               />
-              <Lock className="w-4 h-4 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
             </div>
           </div>
 
           {/* Role */}
           <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-700 block">الدور:</label>
+            <label className="text-xs font-bold text-gray-700 block">{t('role')}:</label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -188,7 +196,7 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
                 }`}
               >
                 <BookOpen className="w-3.5 h-3.5" />
-                <span>طالب</span>
+                <span>{t('role_student')}</span>
               </button>
 
               <button
@@ -201,14 +209,14 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
                 }`}
               >
                 <GraduationCap className="w-3.5 h-3.5" />
-                <span>معلم</span>
+                <span>{t('role_teacher')}</span>
               </button>
             </div>
           </div>
 
           {/* Gender */}
           <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-700 block">الجنس:</label>
+            <label className="text-xs font-bold text-gray-700 block">{t('gender')}:</label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -220,7 +228,7 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
                 }`}
               >
                 <span>👦</span>
-                <span>ذكر</span>
+                <span>{t('male')}</span>
               </button>
 
               <button
@@ -233,7 +241,7 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
                 }`}
               >
                 <span>👧</span>
-                <span>أنثى</span>
+                <span>{t('female')}</span>
               </button>
             </div>
           </div>
@@ -255,15 +263,12 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-3 px-4 rounded-2xl text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+            className="w-full bg-[#006304] hover:bg-[#005103] text-white font-bold py-3 rounded-2xl text-xs transition-colors shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {loading ? (
-              <span>جاري إنشاء الحساب...</span>
+              <span>{isRtl ? 'جاري إنشاء الحساب...' : 'Creating account...'}</span>
             ) : (
-              <>
-                <span>إنشاء حساب</span>
-                <Sparkles className="w-4 h-4 text-[#F9BF3B]" />
-              </>
+              <span>{t('signup')}</span>
             )}
           </button>
         </form>
@@ -275,11 +280,12 @@ export const SignupPage: React.FC<SignupPageProps> = ({ onBackToLogin, onSuccess
               onClick={handleBackToLoginClick}
               className="text-xs text-[#006304] font-bold hover:underline inline-flex items-center gap-1 cursor-pointer"
             >
-              <span>لديك حساب بالفعل؟ سجل دخولك</span>
+              <span>{t('alreadyHaveAccount')}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

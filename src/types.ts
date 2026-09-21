@@ -90,6 +90,7 @@ export type WeekStatus = 'LOCKED' | 'AVAILABLE' | 'IN_PROGRESS' | 'COMPLETED';
 export interface Week {
   id: number;
   worldId: WorldId;
+  trackId?: TrackId;
   weekNumber: number;
   title: string;
   startDate: string;
@@ -129,6 +130,8 @@ export type AccessoryStyle = 'quran' | 'seedling' | 'glasses';
 
 export type UserRole = 'teacher' | 'student' | 'admin';
 export type UserGender = 'male' | 'female';
+export type TrackId = 'juz_amma' | 'juz_amma_tabarak' | 'juz_qad_samia';
+export type Language = 'ar' | 'en';
 
 export interface Circle {
   id: string;
@@ -153,6 +156,8 @@ export interface UserProfile {
   email?: string;
   role: UserRole;              // معلم | طالب | مدير
   gender: UserGender;          // ذكر | أنثى
+  track?: TrackId;             // المسار الدراسي: جزء عم فقط أو جزء عم وتبارك
+  language?: Language;         // لغة الواجهة: ar | en
   mustChangePassword?: boolean;// إجبار المعلم على تغيير كلمة المرور عند أول دخول
   circleId?: string;           // معرف الحلقة
   teacherId?: string;          // معرف المعلم

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import confetti from 'canvas-confetti';
@@ -14,8 +14,11 @@ import {
   UserRole,
   UserGender,
   Circle,
+  TrackId,
+  Language,
 } from '../types';
-import { WEEKS_DATA, INITIAL_BADGES, INITIAL_DECORATIONS } from '../data/quranJourneyData';
+import { WEEKS_DATA, INITIAL_BADGES, INITIAL_DECORATIONS, getWeeksForTrack } from '../data/quranJourneyData';
+import { t as i18nT } from '../lib/i18n';
 import { updateStreakOnActivity, getTodayDateString, getYesterdayDateString } from '../services/streakService';
 
 export type TabType = 'home' | 'journey' | 'camp' | 'achievements' | 'profile' | 'teacher' | 'students' | 'halaqah' | 'admin' | 'admin_analytics' | 'admin_teachers' | 'admin_add_teacher';
@@ -99,6 +102,11 @@ export interface SupabaseContextType {
   updateProfile: (updates: any) => void;
   resetProgress: () => void;
   loadSampleProgress: () => void;
+  // Multi-language & Study Tracks
+  language: Language;
+  setLanguage: (lang: Language) => Promise<void>;
+  setTrack: (track: TrackId) => Promise<void>;
+  t: (key: string, langOrFallback?: Language | string, fallback?: string) => string;
 }
 
 const DEFAULT_USER_PROFILE: UserProfile = {
@@ -107,6 +115,8 @@ const DEFAULT_USER_PROFILE: UserProfile = {
   name: '',
   role: 'student',
   gender: 'male',
+  track: 'juz_amma',
+  language: 'ar',
   circleId: '',
   teacherId: '',
   circleName: '',
@@ -171,18 +181,48 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [teacherCircles, setTeacherCircles] = useState<Circle[]>([]);
   const [teacherSubmissions, setTeacherSubmissions] = useState<NodeSubmission[]>([]);
 
+  // Language State
+  const [language, setLanguageState] = useState<Language>(() => {
+    try {
+      const saved = localStorage.getItem('ward_language');
+      if (saved === 'en' || saved === 'ar') return saved;
+    } catch {}
+    return 'ar';
+  });
+
+  useEffect(() => {
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = language;
+  }, [language]);
+
   // Static Journey Data
-  const [weeks] = useState<Week[]>(WEEKS_DATA);
   const [badges, setBadges] = useState<Badge[]>(INITIAL_BADGES);
   const [decorations, setDecorations] = useState<CampDecoration[]>(INITIAL_DECORATIONS);
 
   // User State directly mapped from Database profile
-  const [user, setUser] = useState<UserProfile>(DEFAULT_USER_PROFILE);
+  const [user, setUser] = useState<UserProfile>(() => {
+    const guestTrack = (typeof localStorage !== 'undefined' ? localStorage.getItem('ward_guest_track') : null) as TrackId | null;
+    return {
+      ...DEFAULT_USER_PROFILE,
+      language: (typeof localStorage !== 'undefined' ? (localStorage.getItem('ward_language') as Language) : 'ar') || 'ar',
+      track: guestTrack || 'juz_amma',
+    };
+  });
+
+  // Dynamic Journey Weeks based on user's track
+  const weeks = useMemo(() => {
+    return getWeeksForTrack(user.track);
+  }, [user.track]);
 
   const mapProfileToUser = useCallback((data: any): UserProfile => {
     const completedNodesList = Array.isArray(data.completed_nodes)
       ? data.completed_nodes
       : (Array.isArray(data.completedNodes) ? data.completedNodes : []);
+
+    const cachedTrack = (data.id ? localStorage.getItem(`ward_user_track_${data.id}`) : localStorage.getItem('ward_guest_track')) as TrackId | null;
+    const resolvedTrack: TrackId = data.track || cachedTrack || (completedNodesList.some((n: string) => n.startsWith('t2_')) ? 'juz_amma_tabarak' : 'juz_amma');
+    const cachedLang = (localStorage.getItem('ward_language') || 'ar') as Language;
+    const resolvedLang: Language = data.language || cachedLang;
 
     return {
       ...DEFAULT_USER_PROFILE,
@@ -192,6 +232,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       email: data.email,
       role: data.role || 'student',
       gender: data.gender || 'male',
+      track: resolvedTrack,
+      language: resolvedLang,
       mustChangePassword: !!(data.must_change_password ?? data.mustChangePassword),
       circleId: data.circle_id || '',
       teacherId: data.teacher_id || '',
@@ -475,6 +517,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             name: metadata?.name || '',
             role: metadata?.role || 'student',
             gender: metadata?.gender || 'male',
+            track: metadata?.track || 'juz_amma',
+            language: metadata?.language || language || 'ar',
             circleName: metadata?.circleName || '',
           },
         },
@@ -491,14 +535,24 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setSession(directData.session);
         }
 
+        const chosenTrack = metadata?.track || 'juz_amma';
+        const chosenLanguage = metadata?.language || language || 'ar';
+
+        try {
+          localStorage.setItem(`ward_user_track_${directData.user.id}`, chosenTrack);
+          localStorage.setItem(`ward_track_chosen_${directData.user.id}`, 'true');
+        } catch {}
+
         // Upsert profile in Supabase profiles table
         try {
-          const profileData = {
+          const profileData: any = {
             id: directData.user.id,
             email: email.trim(),
             name: (metadata?.name || '').trim(),
             role: metadata?.role || 'student',
             gender: metadata?.gender || 'male',
+            track: chosenTrack,
+            language: chosenLanguage,
             circle_id: null,
             xp: 120,
             streak: 1,
@@ -517,8 +571,18 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             setProfile(prof);
             setUser(mapProfileToUser(prof));
           } else {
-            setProfile(profileData as any);
-            setUser(mapProfileToUser(profileData));
+            // If track/language column doesn't exist yet in remote schema, retry without them
+            if (profErr?.message?.includes('track') || profErr?.message?.includes('language')) {
+              const { track: _t, language: _l, ...fallbackData } = profileData;
+              const { data: fbProf } = await supabase.from('profiles').upsert(fallbackData, { onConflict: 'id' }).select().single();
+              if (fbProf) {
+                setProfile({ ...fbProf, track: chosenTrack, language: chosenLanguage });
+                setUser(mapProfileToUser({ ...fbProf, track: chosenTrack, language: chosenLanguage }));
+              }
+            } else {
+              setProfile(profileData as any);
+              setUser(mapProfileToUser(profileData));
+            }
           }
         } catch (profCatch) {
           console.warn('⚠️ [SupabaseContext] Could not upsert profile directly:', profCatch);
@@ -696,6 +760,61 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   }, []);
 
+  const setLanguage = useCallback(async (newLang: Language) => {
+    console.log('🌐 [SupabaseContext] Setting app language to:', newLang);
+    setLanguageState(newLang);
+    try {
+      localStorage.setItem('ward_language', newLang);
+    } catch {}
+    document.documentElement.dir = newLang === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = newLang;
+    setUser(prev => ({ ...prev, language: newLang }));
+
+    if (user.id) {
+      try {
+        await supabase.from('profiles').update({ language: newLang }).eq('id', user.id);
+      } catch (e) {
+        console.warn('⚠️ Could not update language in Supabase profiles (column may not exist yet):', e);
+      }
+    }
+  }, [user.id]);
+
+  const setTrack = useCallback(async (newTrack: TrackId) => {
+    console.log('🎯 [SupabaseContext] Setting study track to:', newTrack);
+    setUser(prev => ({ ...prev, track: newTrack }));
+    if (user.id) {
+      try {
+        localStorage.setItem(`ward_user_track_${user.id}`, newTrack);
+      } catch {}
+      try {
+        await supabase.from('profiles').update({ track: newTrack }).eq('id', user.id);
+      } catch (e) {
+        console.warn('⚠️ Could not update track in Supabase profiles (column may not exist yet):', e);
+      }
+    } else {
+      try {
+        localStorage.setItem('ward_guest_track', newTrack);
+      } catch {}
+    }
+  }, [user.id]);
+
+  const t = useCallback((key: string, langOrFallback?: Language | string, fallback?: string) => {
+    let targetLang = language;
+    let fallbackText = fallback;
+
+    if (langOrFallback === 'ar' || langOrFallback === 'en') {
+      targetLang = langOrFallback as Language;
+    } else if (typeof langOrFallback === 'string') {
+      fallbackText = langOrFallback;
+    }
+
+    const res = i18nT(key, targetLang, fallbackText);
+    if ((res === 'ar' || res === 'en') && key !== 'lang_ar' && key !== 'lang_en') {
+      return fallbackText || key;
+    }
+    return res;
+  }, [language]);
+
   const updateUserProfile = useCallback((updates: Partial<UserProfile>) => {
     setUser(prev => ({ ...prev, ...updates }));
   }, []);
@@ -823,10 +942,29 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         if (!recErr && Array.isArray(recData)) {
           const validRecs = recData.filter((r: any) => r.status !== 'deleted' && r.status !== 'cancelled_reset');
+          
+          // Fetch student profiles to get their real names
+          const studentIds = Array.from(new Set(validRecs.map((r: any) => r.student_id).filter(Boolean)));
+          const studentNameMap = new Map<string, string>();
+          if (studentIds.length > 0) {
+            try {
+              const { data: profs } = await supabase
+                .from('profiles')
+                .select('id, name, display_name')
+                .in('id', studentIds);
+              (profs || []).forEach((p: any) => {
+                const pName = p.display_name || p.name;
+                if (pName && pName.trim()) {
+                  studentNameMap.set(p.id, pName.trim());
+                }
+              });
+            } catch (e) {}
+          }
+
           const mapped = validRecs.map(r => ({
             id: r.id,
             studentId: r.student_id,
-            studentName: 'طالب قرآن',
+            studentName: studentNameMap.get(r.student_id) || 'طالب',
             circleId: r.circle_id,
             teacherId,
             nodeId: r.node_id,
@@ -948,6 +1086,15 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 ? [...existingNodes, nodeId]
                 : existingNodes;
 
+              const isGateNode = nodeId.includes('gate');
+              const existingWeeks = prev.completedWeeks || [];
+              const newWeeks = status === 'approved' && isGateNode && weekId && !existingWeeks.includes(weekId)
+                ? [...existingWeeks, weekId]
+                : existingWeeks;
+              const newCurrentWeek = status === 'approved' && isGateNode && weekId
+                ? Math.max(prev.currentWeek || 1, weekId + 1)
+                : (prev.currentWeek || 1);
+
               return {
                 ...prev,
                 submissions: {
@@ -961,6 +1108,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                   },
                 },
                 completedNodes: newNodes,
+                completedWeeks: newWeeks,
+                currentWeek: newCurrentWeek,
                 xp: status === 'approved' ? prev.xp + xpReward : prev.xp,
               };
             });
@@ -968,14 +1117,20 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
           // Update student in circle list if approved
           if (status === 'approved') {
+            const isGateNode = nodeId.includes('gate');
             setCircleStudents(prev =>
               prev.map(s => {
                 if (s.id === studentId) {
                   const existingNodes = s.completedNodes || [];
                   const newNodes = existingNodes.includes(nodeId) ? existingNodes : [...existingNodes, nodeId];
+                  const existingWeeks = s.completedWeeks || [];
+                  const newWeeks = isGateNode && weekId && !existingWeeks.includes(weekId) ? [...existingWeeks, weekId] : existingWeeks;
+                  const newCurrentWeek = isGateNode && weekId ? Math.max(s.currentWeek || 1, weekId + 1) : (s.currentWeek || 1);
                   return {
                     ...s,
                     completedNodes: newNodes,
+                    completedWeeks: newWeeks,
+                    currentWeek: newCurrentWeek,
                     xp: s.xp + xpReward,
                   };
                 }
@@ -1096,6 +1251,12 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const teacherId = user.teacherId || profile?.teacher_id;
     const studentName = user.displayName || user.name || profile?.name || 'طالب';
 
+    if (studentId && studentName && studentName !== 'طالب' && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(`ward_student_name_${studentId}`, studentName);
+      } catch (e) {}
+    }
+
     const isValidUUID = (str?: string | null): boolean => {
       if (!str || typeof str !== 'string') return false;
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
@@ -1204,7 +1365,12 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setTeacherSubmissions(prev => {
       const exists = prev.some(s => s.studentId === studentId && s.nodeId === nodeId);
       if (!exists) {
-        const studentName = user.displayName || user.name || profile?.name || 'طالب قرآن';
+        const studentName = user.displayName || user.name || profile?.name || 'طالب';
+        if (studentId && studentName !== 'طالب' && typeof localStorage !== 'undefined') {
+          try {
+            localStorage.setItem(`ward_student_name_${studentId}`, studentName);
+          } catch (e) {}
+        }
         const circleId = user.circleId || profile?.circle_id || '';
         const teacherId = user.teacherId || profile?.teacher_id || '';
         const newTeacherSub: NodeSubmission = {
@@ -1595,6 +1761,10 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updateProfile,
         resetProgress,
         loadSampleProgress,
+        language,
+        setLanguage,
+        setTrack,
+        t,
       }}
     >
       {children}

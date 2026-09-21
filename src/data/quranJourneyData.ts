@@ -149,6 +149,113 @@ function shuffleOptions<T>(array: T[]): T[] {
   return copy;
 }
 
+// Helper generator for Track 2 (Juz Amma & Juz Tabarak - 16 weeks)
+function generateTrack2Nodes(weekNum: number, surahs: string[]): NodeItem[] {
+  const nodes: NodeItem[] = [];
+  const surahListText = surahs.join('، ');
+  const surahText = surahs.join(' و ');
+  const isFinalWeek = weekNum === 16;
+
+  // Node 1: Listen (استماع)
+  nodes.push({
+    id: `t2_w${weekNum}_node_1`,
+    weekId: weekNum,
+    order: 1,
+    type: 'listen',
+    title: 'استماع وترتيل',
+    surahName: surahListText,
+    surahsList: [...surahs],
+    audioFiles: surahs.map(s => ({
+      surah: s,
+      url: `https://example.com/audio/${s}.mp3`,
+    })),
+    description: `استمع بإنصات إلى تلاوة خاشعة لجميع سور الأسبوع المقررة (${surahListText}) لضبط النطق وأحكام التلاوة.`,
+    xpReward: 15,
+    required: true,
+    audioSample: 'https://example.com/audio.mp3',
+  });
+
+  // Node 2: Memorize (حفظ)
+  nodes.push({
+    id: `t2_w${weekNum}_node_2`,
+    weekId: weekNum,
+    order: 2,
+    type: 'memorize',
+    title: 'تكرار وحفظ',
+    surahName: surahListText,
+    description: `احفظ المقاطع والسور المقررة لهذا الأسبوع (${surahListText}) مع تكرار الآيات بتأنٍّ وتدبر.`,
+    xpReward: 20,
+    required: true,
+  });
+
+  // Node 3: Recite (تسميع)
+  nodes.push({
+    id: `t2_w${weekNum}_node_3`,
+    weekId: weekNum,
+    order: 3,
+    type: 'recite',
+    title: 'تسميع واعتماد',
+    surahName: surahListText,
+    description: `سجّل تلاوتك لجميع سور الأسبوع (${surahListText}) أو قم بالتسميع في الحلقة للتأكد من سلاسة الحفظ وضبط الآيات.`,
+    xpReward: 25,
+    required: true,
+  });
+
+  // Node 4: Self Review (مراجعة وتثبيت)
+  nodes.push({
+    id: `t2_w${weekNum}_node_4`,
+    weekId: weekNum,
+    order: 4,
+    type: 'review',
+    title: 'مراجعة وتثبيت',
+    surahName: surahListText,
+    description: `مراجعة ذاتية وتمكين شامل لجميع سور الأسبوع المقررة (${surahListText}) لتثبيت الحفظ والتمكين.`,
+    xpReward: 30,
+    required: true,
+  });
+
+  // Node 5: Week Gate (بوابة الأسبوع)
+  const gateQ1Correct = `${surahs.length} سور`;
+  const gateQ1Options = shuffleOptions([gateQ1Correct, '12 سورة', '1 سورة', '20 سورة']);
+
+  const gateQ2Correct = 'البركة والثبات والأجر العظيم ورفعة الدرجات';
+  const gateQ2Options = shuffleOptions([gateQ2Correct, 'السرعة دون تدبر', 'التفاخر فقط', 'لا شيء']);
+
+  nodes.push({
+    id: `t2_w${weekNum}_gate`,
+    weekId: weekNum,
+    order: 5,
+    type: 'gate',
+    title: isFinalWeek ? '🏆 قلعة الاختبار النهائي لجزء عم وجزء تبارك' : `🏆 بوابة الأسبوع ${weekNum}`,
+    surahName: surahListText,
+    description: isFinalWeek
+      ? 'الاختبار الختامي الشامل لإتقان جزأي عم وتبارك والارتقاء في درجات الحفظ!'
+      : `اختبار التثبيت والعبور للأسابيع التالية (${surahText}).`,
+    xpReward: isFinalWeek ? 350 : 100,
+    required: true,
+    questions: [
+      {
+        id: `t2_g_${weekNum}_1`,
+        type: 'mcq',
+        question: `كم عدد السور المقررة في هذا الأسبوع (${surahText})؟`,
+        options: gateQ1Options,
+        correctAnswer: gateQ1Correct,
+        explanation: `الأسبوع يحتوي على ${surahs.length} سور حسب منهج المسار الثاني بنادي ورد.`,
+      },
+      {
+        id: `t2_g_${weekNum}_2`,
+        type: 'mcq',
+        question: 'ما الثمرة الكبرى من الموازنة بين حفظ السور ومراجعتها يومياً؟',
+        options: gateQ2Options,
+        correctAnswer: gateQ2Correct,
+        explanation: 'المراجعة المستمرة مع الحفظ الجديد تضمن ثبات القرآن في الصدور.',
+      },
+    ],
+  });
+
+  return nodes;
+}
+
 export const WEEKS_DATA: Week[] = [
   {
     id: 1,
@@ -355,6 +462,235 @@ export const WEEKS_DATA: Week[] = [
     nodes: generateWeekNodes(17, ['الاختبار الختامي']),
   },
 ];
+
+export const WEEKS_DATA_TRACK_2: Week[] = [
+  {
+    id: 1,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 1,
+    title: 'الأسبوع الأول',
+    startDate: '30/8',
+    endDate: '5/9',
+    surahs: ['الناس', 'الفلق', 'الإخلاص', 'المسد', 'النصر', 'الكافرون', 'الكوثر', 'الماعون', 'قريش', 'الفيل', 'الهمزة', 'العصر'],
+    status: 'IN_PROGRESS',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(1, ['الناس', 'الفلق', 'الإخلاص', 'المسد', 'النصر', 'الكافرون', 'الكوثر', 'الماعون', 'قريش', 'الفيل', 'الهمزة', 'العصر']),
+  },
+  {
+    id: 2,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 2,
+    title: 'الأسبوع الثاني',
+    startDate: '6/9',
+    endDate: '12/9',
+    surahs: ['التكاثر', 'القارعة', 'العاديات', 'الزلزلة'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(2, ['التكاثر', 'القارعة', 'العاديات', 'الزلزلة']),
+  },
+  {
+    id: 3,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 3,
+    title: 'الأسبوع الثالث',
+    startDate: '13/9',
+    endDate: '19/9',
+    surahs: ['البينة', 'القدر', 'العلق', 'التين', 'الشرح', 'الضحى'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(3, ['البينة', 'القدر', 'العلق', 'التين', 'الشرح', 'الضحى']),
+  },
+  {
+    id: 4,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 4,
+    title: 'الأسبوع الرابع',
+    startDate: '20/9',
+    endDate: '26/9',
+    surahs: ['الليل', 'الشمس', 'البلد', 'الفجر'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(4, ['الليل', 'الشمس', 'البلد', 'الفجر']),
+  },
+  {
+    id: 5,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 5,
+    title: 'الأسبوع الخامس',
+    startDate: '27/9',
+    endDate: '3/10',
+    surahs: ['الغاشية', 'الأعلى', 'الطارق', 'البروج'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(5, ['الغاشية', 'الأعلى', 'الطارق', 'البروج']),
+  },
+  {
+    id: 6,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 6,
+    title: 'الأسبوع السادس',
+    startDate: '4/10',
+    endDate: '10/10',
+    surahs: ['الانشقاق', 'المطففين'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(6, ['الانشقاق', 'المطففين']),
+  },
+  {
+    id: 7,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 7,
+    title: 'الأسبوع السابع',
+    startDate: '11/10',
+    endDate: '17/10',
+    surahs: ['الانفطار', 'التكوير'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(7, ['الانفطار', 'التكوير']),
+  },
+  {
+    id: 8,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 8,
+    title: 'الأسبوع الثامن',
+    startDate: '18/10',
+    endDate: '24/10',
+    surahs: ['عبس', 'النازعات'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(8, ['عبس', 'النازعات']),
+  },
+  {
+    id: 9,
+    worldId: 'juz_amma',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 9,
+    title: 'الأسبوع التاسع',
+    startDate: '25/10',
+    endDate: '31/10',
+    surahs: ['النبأ', 'المرسلات'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(9, ['النبأ', 'المرسلات']),
+  },
+  {
+    id: 10,
+    worldId: 'juz_tabarak',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 10,
+    title: 'الأسبوع العاشر',
+    startDate: '1/11',
+    endDate: '7/11',
+    surahs: ['الإنسان', 'القيامة'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(10, ['الإنسان', 'القيامة']),
+  },
+  {
+    id: 11,
+    worldId: 'juz_tabarak',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 11,
+    title: 'الأسبوع الحادي عشر',
+    startDate: '8/11',
+    endDate: '14/11',
+    surahs: ['المدثر', 'المزمل'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(11, ['المدثر', 'المزمل']),
+  },
+  {
+    id: 12,
+    worldId: 'juz_tabarak',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 12,
+    title: 'الأسبوع الثاني عشر',
+    startDate: '15/11',
+    endDate: '21/11',
+    surahs: ['الجن', 'نوح'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(12, ['الجن', 'نوح']),
+  },
+  {
+    id: 13,
+    worldId: 'juz_tabarak',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 13,
+    title: 'الأسبوع الثالث عشر',
+    startDate: '22/11',
+    endDate: '28/11',
+    surahs: ['المعارج', 'الحاقة'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(13, ['المعارج', 'الحاقة']),
+  },
+  {
+    id: 14,
+    worldId: 'juz_tabarak',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 14,
+    title: 'الأسبوع الرابع عشر',
+    startDate: '29/11',
+    endDate: '5/12',
+    surahs: ['القلم'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(14, ['القلم']),
+  },
+  {
+    id: 15,
+    worldId: 'juz_tabarak',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 15,
+    title: 'الأسبوع الخامس عشر',
+    startDate: '6/12',
+    endDate: '12/12',
+    surahs: ['الملك'],
+    status: 'LOCKED',
+    xpReward: 100,
+    nodes: generateTrack2Nodes(15, ['الملك']),
+  },
+  {
+    id: 16,
+    worldId: 'juz_tabarak',
+    trackId: 'juz_amma_tabarak',
+    weekNumber: 16,
+    title: 'الأسبوع السادس عشر',
+    startDate: '13/12',
+    endDate: '19/12',
+    surahs: ['مراجعة شاملة واختبار ختامي'],
+    status: 'LOCKED',
+    xpReward: 300,
+    nodes: generateTrack2Nodes(16, ['مراجعة شاملة واختبار ختامي']),
+  },
+];
+
+/**
+ * Returns weeks data corresponding to the user's selected track.
+ * Defaults to WEEKS_DATA (Juz Amma - 17 weeks) if not set.
+ */
+export function getWeeksForTrack(track?: string | null): Week[] {
+  if (track === 'juz_amma_tabarak') {
+    return WEEKS_DATA_TRACK_2;
+  }
+  return WEEKS_DATA;
+}
+
+/**
+ * Returns a concatenated list of all weeks from both tracks for submission resolution.
+ */
+export function getAllTracksWeeks(): Week[] {
+  return [...WEEKS_DATA, ...WEEKS_DATA_TRACK_2];
+}
 
 export const INITIAL_BADGES: Badge[] = [
   {

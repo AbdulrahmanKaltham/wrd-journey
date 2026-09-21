@@ -9,13 +9,13 @@ interface TeacherNavItem {
 }
 
 export const TeacherBottomNav: React.FC = () => {
-  const { activeTab, setActiveTab } = useSupabase();
+  const { activeTab, setActiveTab, language } = useSupabase();
 
   const navItems: TeacherNavItem[] = [
-    { id: 'teacher', label: 'الرئيسية', icon: Home },
-    { id: 'halaqah', label: 'الحلقة', icon: BookOpen },
-    { id: 'students', label: 'طلابي', icon: Users },
-    { id: 'profile', label: 'حسابي', icon: User },
+    { id: 'teacher', label: language === 'en' ? 'Dashboard' : 'الرئيسية', icon: Home },
+    { id: 'halaqah', label: language === 'en' ? 'Circle' : 'الحلقة', icon: BookOpen },
+    { id: 'students', label: language === 'en' ? 'Students' : 'طلابي', icon: Users },
+    { id: 'profile', label: language === 'en' ? 'Profile' : 'حسابي', icon: User },
   ];
 
   return (

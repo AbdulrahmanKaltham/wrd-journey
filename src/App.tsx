@@ -37,6 +37,7 @@ const AppRouter: React.FC = () => {
     closeLessonModal,
     activeListeningTask,
     closeListeningTask,
+    language,
   } = useSupabase();
 
   const [authView, setAuthView] = useState<'login' | 'signup'>('login');
@@ -72,8 +73,12 @@ const AppRouter: React.FC = () => {
         <div className="w-16 h-16 rounded-3xl bg-[#F0F9F0] border-2 border-[#006304] text-[#006304] flex items-center justify-center text-3xl mb-4 shadow-sm animate-pulse">
           🌱
         </div>
-        <h3 className="font-heading font-black text-lg text-[#006304]">رحلة وِرد</h3>
-        <p className="text-xs font-bold text-gray-500 mt-1">جاري التحميل والمزامنة...</p>
+        <h3 className="font-heading font-black text-lg text-[#006304]">
+          {language === 'en' ? 'Ward Journey' : 'رحلة وِرد'}
+        </h3>
+        <p className="text-xs font-bold text-gray-500 mt-1">
+          {language === 'en' ? 'Loading & Syncing...' : 'جاري التحميل والمزامنة...'}
+        </p>
       </div>
     );
   }

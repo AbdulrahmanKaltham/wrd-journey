@@ -3,24 +3,27 @@ import { useSupabase } from '../context/SupabaseContext';
 import { AvatarDisplay } from '../components/Avatar/AvatarDisplay';
 import { Circle, UserProfile, NodeSubmission } from '../types';
 import { getTeacherDashboardData } from '../services/supabaseService';
-import { WEEKS_DATA } from '../data/quranJourneyData';
+import { getAllTracksWeeks } from '../data/quranJourneyData';
+import { generateRandomExamQuestions, ExamQuestion } from '../utils/quranExamHelper';
 
 // Helper to resolve comprehensive task & surahs details for any submission
 export const getSubmissionTaskDetails = (sub: NodeSubmission) => {
-  let matchedWeek = WEEKS_DATA.find(w => w.nodes.some(n => n.id === sub.nodeId));
+  const allWeeks = getAllTracksWeeks();
+  let matchedWeek = allWeeks.find(w => w.nodes.some(n => n.id === sub.nodeId));
   let matchedNode = matchedWeek?.nodes.find(n => n.id === sub.nodeId);
 
   if (!matchedWeek && sub.nodeId) {
+    const isTrack2 = sub.nodeId.startsWith('t2_');
     const m = sub.nodeId.match(/w(\d+)/i);
     if (m) {
       const wNum = parseInt(m[1], 10);
-      matchedWeek = WEEKS_DATA.find(w => w.id === wNum || w.weekNumber === wNum);
+      matchedWeek = allWeeks.find(w => (isTrack2 ? w.trackId === 'juz_amma_tabarak' : w.trackId !== 'juz_amma_tabarak') && (w.id === wNum || w.weekNumber === wNum));
       matchedNode = matchedWeek?.nodes.find(n => n.id === sub.nodeId) || matchedWeek?.nodes.find(n => n.type === 'recite');
     }
   }
 
   if (!matchedWeek && sub.weekId) {
-    matchedWeek = WEEKS_DATA.find(w => w.id === sub.weekId);
+    matchedWeek = allWeeks.find(w => w.id === sub.weekId);
     matchedNode = matchedWeek?.nodes.find(n => n.id === sub.nodeId) || matchedWeek?.nodes.find(n => n.type === 'recite');
   }
 
@@ -139,6 +142,71 @@ export const TeacherDashboard: React.FC = () => {
   const [inHalaqahNotes, setInHalaqahNotes] = useState<Record<string, string>>({});
   const [absentConfirmId, setAbsentConfirmId] = useState<string | null>(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+  const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
+
+  // Helper to resolve the real student display name accurately from circle or direct students
+  const getStudentDisplayName = (sub: { studentId?: string; studentName?: string }) => {
+    if (sub.studentId) {
+      const allStudents = [...circleStudents, ...directStudents];
+      const found = allStudents.find(
+        s => s.id === sub.studentId || (s.id && sub.studentId && (s.id.startsWith(sub.studentId) || sub.studentId.startsWith(s.id)))
+      );
+      if (found?.displayName?.trim() && found.displayName.trim() !== 'طالب قرآن' && found.displayName.trim() !== 'طالب') {
+        return found.displayName.trim();
+      }
+      if (found?.name?.trim() && found.name.trim() !== 'طالب قرآن' && found.name.trim() !== 'طالب') {
+        return found.name.trim();
+      }
+      if (typeof localStorage !== 'undefined') {
+        const cached = localStorage.getItem(`ward_student_name_${sub.studentId}`);
+        if (cached && cached.trim() && cached.trim() !== 'طالب قرآن' && cached.trim() !== 'طالب') {
+          return cached.trim();
+        }
+      }
+    }
+    if (sub.studentName && sub.studentName !== 'طالب قرآن' && sub.studentName !== 'طالب' && sub.studentName.trim()) {
+      return sub.studentName.trim();
+    }
+    return 'طالب';
+  };
+
+  // Dynamically resolve and load profiles of any submitting students not already in the active list
+  useEffect(() => {
+    if (teacherSubmissions && teacherSubmissions.length > 0) {
+      const knownIds = new Set([...circleStudents.map(s => s.id), ...directStudents.map(s => s.id)]);
+      const unknownIds: string[] = Array.from(new Set(
+        teacherSubmissions
+          .map(s => s.studentId)
+          .filter((id): id is string => !!id && !knownIds.has(id))
+      ));
+      if (unknownIds.length > 0) {
+        import('../services/supabaseService').then(({ getStudentProfilesByIds }) => {
+          getStudentProfilesByIds(unknownIds).then(profs => {
+            if (profs && profs.length > 0) {
+              setDirectStudents(prev => {
+                const existing = new Set(prev.map(p => p.id));
+                const newOnes = profs.filter(p => !existing.has(p.id));
+                return [...prev, ...newOnes];
+              });
+            }
+          });
+        });
+      }
+    }
+  }, [teacherSubmissions, circleStudents, directStudents]);
+
+  // When review modal opens for a gate exam, generate 4 random questions
+  useEffect(() => {
+    if (reviewModalSubmission) {
+      const isGate = reviewModalSubmission.nodeId?.includes('gate') || reviewModalSubmission.nodeTitle?.includes('بوابة');
+      if (isGate) {
+        const details = getSubmissionTaskDetails(reviewModalSubmission);
+        setExamQuestions(generateRandomExamQuestions(details.surahsList));
+      } else {
+        setExamQuestions([]);
+      }
+    }
+  }, [reviewModalSubmission]);
 
   // Fast single-roundtrip data fetching
   const fetchData = async (bypassCache = false) => {
@@ -217,8 +285,14 @@ export const TeacherDashboard: React.FC = () => {
   ) => {
     const subKey = sub.id || `${sub.studentId}_${sub.nodeId}`;
     setReviewingId(subKey);
+    const isGate = sub.nodeId?.includes('gate') || sub.nodeTitle?.includes('بوابة');
     const teacherNotes = (notesState[subKey] !== undefined ? notesState[subKey] : (sub.teacherNotes || '')).trim();
-    const rating = ratingState[subKey] || sub.rating || defaultRating || (status === 'approved' ? 'ممتاز 🌟' : 'يحتاج تدريب 🔄');
+    const rating = ratingState[subKey] || sub.rating || defaultRating || (
+      isGate
+        ? (status === 'approved' ? 'مجتاز بنجاح 🏆' : 'إعادة وتدريب 🔄')
+        : (status === 'approved' ? 'ممتاز 🌟' : 'يحتاج تدريب 🔄')
+    );
+    const xpReward = isGate ? (status === 'approved' ? 50 : 15) : (status === 'approved' ? 25 : 10);
     try {
       await reviewStudentSubmission(
         sub.studentId,
@@ -226,12 +300,20 @@ export const TeacherDashboard: React.FC = () => {
         status,
         teacherNotes,
         rating,
-        status === 'approved' ? 25 : 10,
+        xpReward,
         sub.weekId || 1,
         sub.id
       );
       await fetchTeacherSubmissions();
       setReviewModalSubmission(null);
+      if (status === 'approved') {
+        const studentName = getStudentDisplayName(sub);
+        const msg = isGate
+          ? `تم اعتماد اجتياز بوابة الأسبوع للطالب ${studentName} بنجاح، وفُتح له الأسبوع القادم (+50 XP)! 🏆`
+          : `تم اعتماد تسميع الطالب ${studentName} بنجاح وإضافة 25 نقطة لإنجازه`;
+        setActionSuccessMsg(msg);
+        setTimeout(() => setActionSuccessMsg(null), 4500);
+      }
     } catch (err) {
       console.error('Error reviewing submission:', err);
     } finally {
@@ -247,7 +329,7 @@ export const TeacherDashboard: React.FC = () => {
       if (res?.success) {
         await fetchTeacherSubmissions();
         setAbsentConfirmId(null);
-        setActionSuccessMsg(`تم تسجيل غياب الطالب ${sub.studentName || ''} بنجاح، ويمكنه التسميع لاحقاً`);
+        setActionSuccessMsg(`تم تسجيل غياب الطالب ${getStudentDisplayName(sub)} بنجاح، ويمكنه التسميع لاحقاً`);
         setTimeout(() => setActionSuccessMsg(null), 4000);
       } else {
         alert(res?.message || 'حدث خطأ أثناء تسجيل الغياب');
@@ -262,21 +344,28 @@ export const TeacherDashboard: React.FC = () => {
   const handleApproveInHalaqah = async (sub: NodeSubmission) => {
     const subKey = sub.id || `${sub.studentId}_${sub.nodeId}`;
     setReviewingId(subKey);
+    const isGate = sub.nodeId?.includes('gate') || sub.nodeTitle?.includes('بوابة');
     const teacherNotes = (inHalaqahNotes[subKey] || '').trim();
+    const rating = isGate ? 'مجتاز بنجاح 🏆' : 'ممتاز 🌟';
+    const xpReward = isGate ? 50 : 25;
     try {
       await reviewStudentSubmission(
         sub.studentId,
         sub.nodeId,
         'approved',
         teacherNotes,
-        'ممتاز 🌟',
-        25,
+        rating,
+        xpReward,
         sub.weekId || 1,
         sub.id
       );
       await fetchTeacherSubmissions();
-      setActionSuccessMsg(`تم اعتماد تسميع الطالب ${sub.studentName || ''} بنجاح وإضافة 25 نقطة لإنجازه`);
-      setTimeout(() => setActionSuccessMsg(null), 4000);
+      const studentName = getStudentDisplayName(sub);
+      const msg = isGate
+        ? `تم اعتماد اجتياز بوابة الأسبوع للطالب ${studentName} بنجاح، وفُتح له الأسبوع القادم (+50 XP)! 🏆`
+        : `تم اعتماد تسميع الطالب ${studentName} بنجاح وإضافة 25 نقطة لإنجازه`;
+      setActionSuccessMsg(msg);
+      setTimeout(() => setActionSuccessMsg(null), 4500);
     } catch (err) {
       console.error('Error approving halaqah submission:', err);
     } finally {
@@ -292,20 +381,22 @@ export const TeacherDashboard: React.FC = () => {
       return;
     }
     setReviewingId(subKey);
+    const isGate = sub.nodeId?.includes('gate') || sub.nodeTitle?.includes('بوابة');
+    const rating = isGate ? 'إعادة وتدريب 🔄' : 'يحتاج تدريب 🔄';
     try {
       await reviewStudentSubmission(
         sub.studentId,
         sub.nodeId,
         'reviewed',
         teacherNotes,
-        'يحتاج تدريب 🔄',
+        rating,
         10,
         sub.weekId || 1,
         sub.id
       );
       await fetchTeacherSubmissions();
       setOpenPracticeNoteId(null);
-      setActionSuccessMsg(`تم إرسال الملاحظات للطالب ${sub.studentName || ''} بنجاح لإعادة التدريب`);
+      setActionSuccessMsg(`تم إرسال الملاحظات للطالب ${getStudentDisplayName(sub)} بنجاح لإعادة التدريب`);
       setTimeout(() => setActionSuccessMsg(null), 4000);
     } catch (err) {
       console.error('Error requesting practice for halaqah submission:', err);
@@ -595,12 +686,12 @@ export const TeacherDashboard: React.FC = () => {
                                   : 'bg-purple-100 text-purple-800'
                               }`}
                             >
-                              {(sub.studentName || 'ط')[0]}
+                              {(getStudentDisplayName(sub))[0]}
                             </div>
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="font-heading font-black text-xs text-slate-900 group-hover:text-purple-800 transition-colors truncate">
-                                  {sub.studentName || 'طالب قرآن'}
+                                  {getStudentDisplayName(sub)}
                                 </span>
                                 <span className="bg-purple-100 text-purple-800 text-[9px] font-bold px-1.5 py-0.5 rounded-md border border-purple-200 shrink-0">
                                   {taskDetails.weekTitle}
@@ -767,12 +858,12 @@ export const TeacherDashboard: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
                               <div className="w-10 h-10 rounded-full bg-emerald-100 text-[#006304] font-heading font-black text-sm flex items-center justify-center shrink-0 border border-emerald-200">
-                                {(sub.studentName || 'ط')[0]}
+                                {(getStudentDisplayName(sub))[0]}
                               </div>
                               <div>
                                 <div className="flex items-center gap-1.5">
                                   <h4 className="font-heading font-black text-sm text-slate-900">
-                                    {sub.studentName || 'طالب قرآن'}
+                                    {getStudentDisplayName(sub)}
                                   </h4>
                                   <span className="bg-[#006304]/10 text-[#006304] text-[9.5px] font-black px-2 py-0.5 rounded-full border border-[#006304]/20">
                                     {taskDetails.weekTitle}
@@ -1212,7 +1303,7 @@ export const TeacherDashboard: React.FC = () => {
                     </div>
                     <div>
                       <h4 className="font-heading font-black text-xs text-slate-900 group-hover:text-[#006304] transition-colors">
-                        {student.displayName || student.name || 'طالب قرآن'}
+                        {student.displayName || student.name || 'طالب'}
                       </h4>
                       <div className="flex items-center gap-2 text-[10px] text-gray-500 font-bold mt-0.5">
                         <span className="text-[#006304]">
@@ -1351,6 +1442,8 @@ export const TeacherDashboard: React.FC = () => {
         const isReviewed = sub.status === 'reviewed';
         const isSubmittingReview = reviewingId === subKey;
         const taskDetails = getSubmissionTaskDetails(sub);
+        const isGate = sub.nodeId?.includes('gate') || sub.nodeTitle?.includes('بوابة');
+        const studentDisplayName = getStudentDisplayName(sub);
 
         return (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
@@ -1358,15 +1451,19 @@ export const TeacherDashboard: React.FC = () => {
               {/* Modal Top Header */}
               <div className="flex items-center justify-between border-b border-gray-100 pb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-full bg-[#006304]/10 text-[#006304] font-black text-sm flex items-center justify-center font-heading shrink-0 border border-[#006304]/20">
-                    {(sub.studentName || 'ط')[0]}
+                  <div className={`w-10 h-10 rounded-full font-black text-sm flex items-center justify-center font-heading shrink-0 border ${
+                    isGate
+                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                      : 'bg-[#006304]/10 text-[#006304] border-[#006304]/20'
+                  }`}>
+                    {studentDisplayName[0]}
                   </div>
                   <div>
                     <h3 className="font-heading font-black text-sm sm:text-base text-slate-900">
-                      مراجعة تسميع: {sub.studentName || 'طالب قرآن'}
+                      {isGate ? 'اختبار بوابة الأسبوع في الحلقة' : 'مراجعة تسميع'}: {studentDisplayName}
                     </h3>
                     <span className="text-[11px] text-gray-500 font-bold block mt-0.5">
-                      {taskDetails.weekTitle} • {taskDetails.nodeTitle}
+                      {taskDetails.weekTitle} • {isGate ? 'بوابة العبور واختبار الإتقان' : taskDetails.nodeTitle}
                     </span>
                   </div>
                 </div>
@@ -1457,8 +1554,41 @@ export const TeacherDashboard: React.FC = () => {
                 </div>
               </div>
 
+              {/* Oral Exam Questions (Proposed 4 random sections for Teacher in Halaqah) */}
+              {isGate && examQuestions.length > 0 && (
+                <div className="bg-amber-50/80 border-2 border-amber-300/90 rounded-2xl p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-black text-amber-950">
+                      <Trophy className="w-4 h-4 text-amber-600" />
+                      <span>أسئلة الاختبار الشفهي المقترحة (٤ مقاطع في الحلقة):</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setExamQuestions(generateRandomExamQuestions(taskDetails.surahsList))}
+                      className="text-[10px] font-bold text-amber-900 bg-amber-200/90 hover:bg-amber-300 px-2 py-1 rounded-lg flex items-center gap-1 transition-colors cursor-pointer border border-amber-300"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>توليد أسئلة أخرى</span>
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {examQuestions.map((q) => (
+                      <div key={q.number} className="bg-white p-2.5 rounded-xl border border-amber-200/90 text-right space-y-0.5">
+                        <div className="flex items-center justify-between text-[10.5px] font-bold text-amber-800">
+                          <span className="bg-amber-100 px-2 py-0.5 rounded font-num">المقطع {q.number}</span>
+                          <span>سورة {q.surah} {q.verse ? `(الآية ${q.verse})` : ''}</span>
+                        </div>
+                        <p className="font-quran text-sm text-slate-900 font-bold leading-relaxed pt-0.5">
+                          {q.prompt}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Audio player if student recorded audio */}
-              {sub.audioUrl ? (
+              {!isGate && sub.audioUrl ? (
                 <div className="bg-purple-50/70 border-2 border-purple-200 rounded-2xl p-3.5 space-y-2">
                   <div className="flex items-center justify-between text-xs font-bold text-purple-900">
                     <span className="flex items-center gap-1.5">
@@ -1481,7 +1611,7 @@ export const TeacherDashboard: React.FC = () => {
                     متصفحك لا يدعم تشغيل هذا الملف الصوتي.
                   </audio>
                 </div>
-              ) : sub.type === 'recording' ? (
+              ) : !isGate && sub.type === 'recording' ? (
                 <div className="bg-amber-50 p-3 rounded-2xl border border-amber-200 text-xs text-amber-800 text-center font-bold">
                   لم يتم إرفاق ملف صوتي أو قيد الرفع
                 </div>
@@ -1493,13 +1623,16 @@ export const TeacherDashboard: React.FC = () => {
                   التقدير ومستوى الأداء:
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {['ممتاز 🌟', 'جيد جداً 👍', 'جيد 👏', 'يحتاج تدريب 🔄'].map((tag) => (
+                  {(isGate
+                    ? ['مجتاز بنجاح 🏆', 'ممتاز 🌟', 'جيد جداً 👍', 'إعادة وتدريب 🔄']
+                    : ['ممتاز 🌟', 'جيد جداً 👍', 'جيد 👏', 'يحتاج تدريب 🔄']
+                  ).map((tag) => (
                     <button
                       key={tag}
                       type="button"
                       onClick={() => setRatingState(prev => ({ ...prev, [subKey]: tag }))}
                       className={`text-xs font-bold py-2 px-1.5 rounded-xl border transition-all cursor-pointer text-center ${
-                        (ratingState[subKey] || sub.rating || 'ممتاز 🌟') === tag
+                        (ratingState[subKey] || sub.rating || (isGate ? 'مجتاز بنجاح 🏆' : 'ممتاز 🌟')) === tag
                           ? 'bg-[#006304] text-white border-[#006304] shadow-xs'
                           : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
                       }`}
@@ -1524,7 +1657,9 @@ export const TeacherDashboard: React.FC = () => {
                   onChange={(e) => setNotesState(prev => ({ ...prev, [subKey]: e.target.value }))}
                   placeholder={
                     sub.teacherNotes ||
-                    'اكتب توجيهاتك للطالب، مثل: إتقان أحكام النون الساكنة أو ثناء على جودة التلاوة...'
+                    (isGate
+                      ? 'اكتب توجيهاتك للطالب بعد الاختبار الشفهي في الحلقة، أو ثناء على حفظه وإتقانه...'
+                      : 'اكتب توجيهاتك للطالب، مثل: إتقان أحكام النون الساكنة أو ثناء على جودة التلاوة...')
                   }
                   className="w-full text-xs p-3 bg-slate-50 border border-gray-200 rounded-2xl focus:border-[#006304] focus:outline-hidden resize-none font-medium text-slate-900"
                 />
@@ -1536,21 +1671,27 @@ export const TeacherDashboard: React.FC = () => {
                   <button
                     type="button"
                     disabled={isSubmittingReview}
-                    onClick={() => handleReview(sub, 'approved')}
+                    onClick={() => handleReview(sub, 'approved', isGate ? 'مجتاز بنجاح 🏆' : 'ممتاز 🌟')}
                     className="bg-[#006304] hover:bg-[#005103] disabled:opacity-50 text-white text-xs font-bold py-3 px-3 rounded-xl transition-all cursor-pointer shadow-md flex items-center justify-center gap-1.5"
                   >
                     <CheckCircle2 className="w-4 h-4 text-[#F9BF3B]" />
-                    <span>{isSubmittingReview ? 'جاري الاعتماد...' : 'اعتماد التسميع (+25 XP)'}</span>
+                    <span>
+                      {isSubmittingReview
+                        ? 'جاري الاعتماد...'
+                        : isGate
+                        ? 'اعتماد اجتياز البوابة (+50 XP)'
+                        : 'اعتماد التسميع (+25 XP)'}
+                    </span>
                   </button>
 
                   <button
                     type="button"
                     disabled={isSubmittingReview}
-                    onClick={() => handleReview(sub, 'reviewed', 'يحتاج تدريب 🔄')}
+                    onClick={() => handleReview(sub, 'reviewed', isGate ? 'إعادة وتدريب 🔄' : 'يحتاج تدريب 🔄')}
                     className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-bold py-3 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <Clock className="w-4 h-4 text-amber-800" />
-                    <span>طلب إعادة وتدريب</span>
+                    <span>{isGate ? 'طلب إعادة الاختبار' : 'طلب إعادة وتدريب'}</span>
                   </button>
                 </div>
 
@@ -1588,7 +1729,7 @@ export const TeacherDashboard: React.FC = () => {
 
             <div className="text-center space-y-1">
               <h4 className="font-heading font-black text-base text-slate-900">
-                {selectedStudentForDetails.displayName || selectedStudentForDetails.name || 'طالب قرآن'}
+                {selectedStudentForDetails.displayName || selectedStudentForDetails.name || 'طالب'}
               </h4>
               <p className="text-xs text-[#006304] font-bold">
                 {selectedStudentForDetails.gender === 'female' ? 'طالبة في حلقة الإناث' : 'طالب في حلقة البنين'}

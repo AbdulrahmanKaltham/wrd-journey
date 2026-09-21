@@ -1,22 +1,24 @@
 import { supabase } from '../lib/supabaseClient';
 import { Circle, NodeSubmission } from '../types';
-import { WEEKS_DATA } from '../data/quranJourneyData';
+import { getAllTracksWeeks } from '../data/quranJourneyData';
 
 const resolveSubmissionMeta = (nodeId?: string, weekId?: number) => {
-  let matchedWeek = WEEKS_DATA.find(w => w.nodes.some(n => n.id === nodeId));
+  const allWeeks = getAllTracksWeeks();
+  let matchedWeek = allWeeks.find(w => w.nodes.some(n => n.id === nodeId));
   let matchedNode = matchedWeek?.nodes.find(n => n.id === nodeId);
 
   if (!matchedWeek && nodeId) {
+    const isTrack2 = nodeId.startsWith('t2_');
     const m = nodeId.match(/w(\d+)/i);
     if (m) {
       const wNum = parseInt(m[1], 10);
-      matchedWeek = WEEKS_DATA.find(w => w.id === wNum || w.weekNumber === wNum);
+      matchedWeek = allWeeks.find(w => (isTrack2 ? w.trackId === 'juz_amma_tabarak' : w.trackId !== 'juz_amma_tabarak') && (w.id === wNum || w.weekNumber === wNum));
       matchedNode = matchedWeek?.nodes.find(n => n.id === nodeId) || matchedWeek?.nodes.find(n => n.type === 'recite');
     }
   }
 
   if (!matchedWeek && weekId) {
-    matchedWeek = WEEKS_DATA.find(w => w.id === weekId);
+    matchedWeek = allWeeks.find(w => w.id === weekId);
     matchedNode = matchedWeek?.nodes.find(n => n.id === nodeId) || matchedWeek?.nodes.find(n => n.type === 'recite');
   }
 
@@ -1362,13 +1364,34 @@ export const getTeacherSubmissions = async (teacherId: string): Promise<NodeSubm
     // Filter out deleted/cancelled records
     const validRecs = recordings.filter((r: any) => r.status !== 'deleted' && r.status !== 'cancelled_reset');
 
+    // Fetch actual student profiles to get real student names
+    const studentIds = Array.from(new Set(validRecs.map((r: any) => r.student_id).filter(Boolean)));
+    const studentNameMap = new Map<string, string>();
+    if (studentIds.length > 0) {
+      try {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, name, display_name')
+          .in('id', studentIds);
+        (profs || []).forEach((p: any) => {
+          const pName = p.display_name || p.name;
+          if (pName && pName.trim()) {
+            studentNameMap.set(p.id, pName.trim());
+          }
+        });
+      } catch (e) {
+        console.warn('⚠️ [supabaseService.getTeacherSubmissions] Could not fetch student profile names:', e);
+      }
+    }
+
     // 3. تحويل البيانات إلى هيكل NodeSubmission
     return validRecs.map((rec: any) => {
       const meta = resolveSubmissionMeta(rec.node_id, rec.week_id);
+      const studentName = studentNameMap.get(rec.student_id) || 'طالب';
       return {
         id: rec.id,
         studentId: rec.student_id,
-        studentName: 'طالب قرآن',
+        studentName,
         circleId: rec.circle_id,
         nodeId: rec.node_id,
         weekId: meta.weekId,
@@ -1635,6 +1658,11 @@ export const markHalaqahAbsentInDB = async (
 export interface AdminStatsData {
   teachers: { total: number; male: number; female: number };
   students: { total: number; male: number; female: number };
+  tracks: {
+    juzAmma: number;
+    juzAmmaTabarak: number;
+    unassigned: number;
+  };
   activeCirclesCount: number;
   activeStudentsTodayCount: number;
   totalRecordingsCount: number;
@@ -1818,6 +1846,10 @@ export const fetchAdminStatsFromSupabase = async (): Promise<{
       return { date, label: dayLabel, count };
     });
 
+    const juzAmmaStudents = students.filter(s => s.track === 'juz_amma' || (!s.track && ((s.completed_nodes && s.completed_nodes.length > 0) || (s.completed_weeks && s.completed_weeks.length > 0) || s.current_week)));
+    const juzAmmaTabarakStudents = students.filter(s => s.track === 'juz_amma_tabarak');
+    const unassignedTrackStudents = students.filter(s => !s.track && !juzAmmaStudents.includes(s));
+
     const stats: AdminStatsData = {
       teachers: {
         total: teachers.length,
@@ -1828,6 +1860,11 @@ export const fetchAdminStatsFromSupabase = async (): Promise<{
         total: students.length,
         male: maleStudents.length,
         female: femaleStudents.length,
+      },
+      tracks: {
+        juzAmma: juzAmmaStudents.length,
+        juzAmmaTabarak: juzAmmaTabarakStudents.length,
+        unassigned: unassignedTrackStudents.length,
       },
       activeCirclesCount: activeCircles.length,
       activeStudentsTodayCount: activeStudentsToday.length,

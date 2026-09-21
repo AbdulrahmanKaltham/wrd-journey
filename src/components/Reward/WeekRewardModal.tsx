@@ -2,27 +2,77 @@ import React from 'react';
 import { motion } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { useApp } from '../../context/AppContext';
-import { Gift, Trophy, Zap, Award, Sparkles, Check, ArrowLeft, Star } from 'lucide-react';
+import { t, getSurahName } from '../../lib/i18n';
+import { Gift, Trophy, Zap, Award, Sparkles, Check, ArrowLeft, Star, ArrowRight } from 'lucide-react';
 
 export const WeekRewardModal: React.FC = () => {
-  const { pendingWeekReward, claimWeekRewardAndUnlockNext, badges, user } = useApp();
+  const { pendingWeekReward, claimWeekRewardAndUnlockNext, badges, user, setTrack, language } = useApp();
 
   if (!pendingWeekReward) return null;
 
   const { week, xpEarned, unlockedBadgeIds } = pendingWeekReward;
-  const isFinalWeek = week.id === 17;
+  
+  // Determine final week based on user track
+  const isFinalWeek = 
+    user.track === 'juz_amma_tabarak'
+      ? week.id === 16
+      : user.track === 'juz_qad_samia'
+      ? week.id === 18
+      : week.id === 17;
 
   // Find badge objects from unlockedBadgeIds
   const earnedBadges = badges.filter(b => unlockedBadgeIds.includes(b.id));
 
-  const handleClaim = () => {
+  const isEn = language === 'en';
+
+  const handleClaim = async (targetTrack?: 'juz_amma_tabarak' | 'juz_qad_samia') => {
     confetti({
       particleCount: isFinalWeek ? 150 : 80,
       spread: 90,
       origin: { y: 0.55 },
     });
+    if (targetTrack && setTrack) {
+      await setTrack(targetTrack);
+    }
     claimWeekRewardAndUnlockNext();
   };
+
+  // Next Track Logic for completion
+  let completionTitle = isEn ? `Congratulations on completing ${t(week.title, 'en')}! 🌿` : `مبارك إتمام ${week.title}! 🌿`;
+  let completionDescription = isEn
+    ? `Congratulations ${user.displayName}! You have completed the memorization and recitation of surahs (${week.surahs.map(s => getSurahName(s, 'en')).join(', ')}) and passed the gate test.`
+    : `هنيئاً لك يا ${user.displayName}! لقد أتممت متطلبات حفظ وتسميع سور (${week.surahs.join('، ')}) وتجاوزت بوابة الاختبار بنجاح وجدارة.`;
+  let nextStageLabel = isEn ? `Week ${week.id + 1}` : `الأسبوع ${week.id + 1}`;
+  let claimButtonText = isEn ? 'Claim Reward & Unlock Next Week' : 'استلام المكافأة وفتح الأسبوع التالي';
+  let nextTrackTarget: 'juz_amma_tabarak' | 'juz_qad_samia' | undefined = undefined;
+
+  if (isFinalWeek) {
+    if (user.track === 'juz_amma_tabarak') {
+      completionTitle = isEn ? 'Congratulations on Completing Amma & Tabarak Track! 🎉' : 'مبارك إتمام مسار عم وتبارك! 🎉';
+      completionDescription = isEn
+        ? `Congratulations ${user.displayName}! You have completed the entire Amma & Tabarak track! Would you like to advance to the Juz Qad Samia track to continue your memorization journey?`
+        : `هنيئاً لك يا ${user.displayName}! لقد أتممت مسار عم وتبارك كاملاً بنجاح وجدارة. هل تود الانتقال إلى مسار جزء قد سمع لمواصلة رحلة الحفظ المباركة؟`;
+      nextStageLabel = isEn ? 'Advance to Juz Qad Samia Track' : 'الانتقال إلى مسار جزء قد سمع';
+      claimButtonText = isEn ? 'Claim Reward & Advance to Juz Qad Samia 🚀' : 'استلام المكافأة والانتقال لمسار جزء قد سمع 🚀';
+      nextTrackTarget = 'juz_qad_samia';
+    } else if (user.track === 'juz_qad_samia') {
+      completionTitle = isEn ? 'Congratulations on Completing the Quranic Track! 🌟' : 'مبارك إتمام مسار جزء قد سمع بنجاح وتفوق! 🌟';
+      completionDescription = isEn
+        ? `Congratulations ${user.displayName}! You have completed this track with distinction. Upcoming Quranic tracks are currently in development and will be available soon insha'Allah.`
+        : `هنيئاً لك يا ${user.displayName}! لقد أتممت المسار بتفوق وضبط تام. المسارات القرآنية القادمة قيد التطوير وستكون متاحة قريباً بإذن الله.`;
+      nextStageLabel = isEn ? 'Upcoming Tracks (In Development)' : 'المسارات القادمة (قيد التطوير قريباً)';
+      claimButtonText = isEn ? 'Claim Final Coronation Reward 🏆' : 'استلام المكافأة وتتويج الختام المبارك 🏆';
+    } else {
+      // Default / juz_amma
+      completionTitle = isEn ? 'Congratulations on Completing Juz Amma Track! 🎉' : 'مبارك إتمام مسار جزء عم! 🎉';
+      completionDescription = isEn
+        ? `Congratulations ${user.displayName}! You have completed the entire Juz Amma track! Would you like to advance to the Amma & Tabarak track to continue your memorization journey?`
+        : `هنيئاً لك يا ${user.displayName}! لقد أتممت مسار جزء عم كاملاً بنجاح وجدارة. هل تود الانتقال إلى مسار عم وتبارك لمواصلة رحلة الحفظ المباركة؟`;
+      nextStageLabel = isEn ? 'Advance to Amma & Tabarak Track' : 'الانتقال إلى مسار عم وتبارك';
+      claimButtonText = isEn ? 'Claim Reward & Advance to Amma & Tabarak 🚀' : 'استلام المكافأة والانتقال لمسار عم وتبارك 🚀';
+      nextTrackTarget = 'juz_amma_tabarak';
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto font-arabic">
@@ -64,15 +114,15 @@ export const WeekRewardModal: React.FC = () => {
         {/* Header Titles */}
         <div className="space-y-1.5">
           <span className="text-[11px] font-black uppercase tracking-wider bg-[#F9BF3B] text-slate-900 px-3 py-0.5 rounded-full inline-block shadow-2xs">
-            {isFinalWeek ? 'تاج الإتقان والختام' : 'صندوق مكافأة الأسبوع'}
+            {isFinalWeek ? (isEn ? 'Mastery & Completion Crown' : 'تاج الإتقان والختام') : (isEn ? 'Weekly Reward Chest' : 'صندوق مكافأة الأسبوع')}
           </span>
 
           <h3 className="font-heading font-black text-xl sm:text-2xl text-[#006304]">
-            {isFinalWeek ? 'مبارك ختم مقرر جزء عم! 🎉' : `مبارك إتمام ${week.title}! 🌿`}
+            {completionTitle}
           </h3>
 
           <p className="text-xs text-slate-600 leading-relaxed font-medium px-2">
-            هنيئاً لك يا <span className="font-bold text-slate-900">{user.displayName}</span>! لقد أتممت متطلبات حفظ وتسميع سور ({week.surahs.join('، ')}) وتجاوزت بوابة الاختبار بنجاح وجدارة.
+            {completionDescription}
           </p>
         </div>
 
@@ -81,7 +131,7 @@ export const WeekRewardModal: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
               <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-              <span>نقاط الخبرة المكتسبة:</span>
+              <span>{isEn ? 'XP Earned:' : 'نقاط الخبرة المكتسبة:'}</span>
             </div>
             <span className="font-num font-black text-base text-[#006304] bg-white px-3 py-0.5 rounded-xl border border-[#006304]/20 shadow-2xs">
               +{xpEarned} XP
@@ -91,10 +141,10 @@ export const WeekRewardModal: React.FC = () => {
           <div className="flex items-center justify-between text-xs font-bold text-slate-700 pt-1 border-t border-emerald-600/10">
             <div className="flex items-center gap-2">
               <Star className="w-4 h-4 text-[#F9BF3B] fill-[#F9BF3B]" />
-              <span>المرحلة القادمة:</span>
+              <span>{isEn ? 'Next Stage:' : 'المرحلة القادمة:'}</span>
             </div>
             <span className="text-slate-900 font-bold">
-              {isFinalWeek ? 'إتمام الرحلة المباركة' : `الأسبوع ${week.id + 1}`}
+              {nextStageLabel}
             </span>
           </div>
         </div>
@@ -104,7 +154,7 @@ export const WeekRewardModal: React.FC = () => {
           <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5 space-y-2 text-right">
             <div className="flex items-center gap-1.5 text-xs font-black text-amber-900">
               <Award className="w-4 h-4 text-amber-600" />
-              <span>أوسمة جديدة تم فتحها:</span>
+              <span>{isEn ? 'New Badges Unlocked:' : 'أوسمة جديدة تم فتحها:'}</span>
             </div>
 
             <div className="space-y-1.5 pt-1">
@@ -128,17 +178,24 @@ export const WeekRewardModal: React.FC = () => {
           </div>
         )}
 
-        {/* Claim and Unlock Action Button */}
-        <div className="pt-2">
+        {/* Claim and Unlock Action Buttons */}
+        <div className="pt-2 space-y-2">
           <button
-            onClick={handleClaim}
-            className="w-full bg-[#006304] hover:bg-[#005103] text-white font-heading font-black py-4 px-6 rounded-2xl text-sm shadow-lg shadow-[#006304]/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            onClick={() => handleClaim(nextTrackTarget)}
+            className="w-full bg-[#006304] hover:bg-[#005103] text-white font-heading font-black py-4 px-6 rounded-2xl text-sm shadow-lg shadow-[#006304]/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <span>
-              {isFinalWeek ? 'استلام المكافأة وتتويج ختم جزء عم' : 'استلام المكافأة وفتح الأسبوع التالي'}
-            </span>
+            <span>{claimButtonText}</span>
             <ArrowLeft className="w-4 h-4 text-[#F9BF3B]" />
           </button>
+
+          {isFinalWeek && nextTrackTarget && (
+            <button
+              onClick={() => handleClaim(undefined)}
+              className="text-xs text-gray-500 hover:text-gray-800 font-bold underline py-1 transition-colors cursor-pointer"
+            >
+              {isEn ? 'Stay in current track for review' : 'البقاء في المسار الحالي للمراجعة والتثبيت'}
+            </button>
+          )}
         </div>
       </motion.div>
     </div>

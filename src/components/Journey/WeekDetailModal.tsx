@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { Week } from '../../types';
+import { t, getSurahName } from '../../lib/i18n';
 import { X, CheckCircle2, Lock, Play, Calendar, BookOpen, Headphones, Mic, RotateCcw, Target, Trophy, Star } from 'lucide-react';
 
 interface WeekDetailModalProps {
@@ -9,8 +10,9 @@ interface WeekDetailModalProps {
 }
 
 export const WeekDetailModal: React.FC<WeekDetailModalProps> = ({ week, onClose }) => {
-  const { user, startLesson, userCircle, setActiveTab } = useApp();
+  const { user, startLesson, userCircle, setActiveTab, language } = useApp();
   const [showReciteCircleAlert, setShowReciteCircleAlert] = React.useState(false);
+  const isEn = language === 'en';
 
   const handleStartTask = (node: any) => {
     if (node.type === 'recite' && user.role === 'student' && (!user.circleId || !user.teacherId) && !userCircle) {
@@ -52,7 +54,7 @@ export const WeekDetailModal: React.FC<WeekDetailModalProps> = ({ week, onClose 
 
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-bold bg-[#F9BF3B] text-black px-3 py-0.5 rounded-full shadow-2xs">
-              بوابة {week.title}
+              {isEn ? `Week ${week.id} Gate` : `بوابة ${week.title}`}
             </span>
             <span className="text-xs text-emerald-200 flex items-center gap-1 font-num font-medium">
               <Calendar className="w-3.5 h-3.5" />
@@ -61,18 +63,22 @@ export const WeekDetailModal: React.FC<WeekDetailModalProps> = ({ week, onClose 
           </div>
 
           <h3 className="font-heading font-extrabold text-xl text-white mt-1">
-            {week.title}
+            {isEn ? t(week.title, 'en') : week.title}
           </h3>
 
           <div className="flex items-start gap-2 mt-2 text-xs text-emerald-100 font-medium">
             <BookOpen className="w-4 h-4 text-[#F9BF3B] shrink-0 mt-0.5" />
-            <span className="leading-relaxed">السور المقررة: {week.surahs.join('، ')}</span>
+            <span className="leading-relaxed">
+              {isEn
+                ? `Prescribed Surahs: ${week.surahs.map(s => getSurahName(s, 'en')).join(', ')}`
+                : `السور المقررة: ${week.surahs.join('، ')}`}
+            </span>
           </div>
 
           {/* Progress Bar */}
           <div className="mt-4">
             <div className="flex items-center justify-between text-xs text-[#F9BF3B] mb-1 font-bold">
-              <span>نسبة الإنجاز بالأسبوع</span>
+              <span>{isEn ? 'Weekly Progress' : 'نسبة الإنجاز بالأسبوع'}</span>
               <span className="font-num">{progressPercent}%</span>
             </div>
             <div className="w-full bg-white/20 h-2.5 rounded-full overflow-hidden">
@@ -87,7 +93,9 @@ export const WeekDetailModal: React.FC<WeekDetailModalProps> = ({ week, onClose 
         {/* Nodes List */}
         <div className="p-4 overflow-y-auto flex-1 space-y-3">
           <span className="text-xs font-bold text-gray-500 block mb-2">
-            محطات ومهام الأسبوع ({week.nodes.length} خطوات):
+            {isEn
+              ? `Weekly Milestones & Tasks (${week.nodes.length} steps):`
+              : `محطات ومهام الأسبوع (${week.nodes.length} خطوات):`}
           </span>
 
           {week.nodes.map((node, index) => {
@@ -121,16 +129,16 @@ export const WeekDetailModal: React.FC<WeekDetailModalProps> = ({ week, onClose 
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="font-heading font-bold text-xs text-slate-900">
-                        {node.title}
+                        {isEn ? t(node.title, 'en') : node.title}
                       </span>
                       {node.type === 'gate' && (
                         <span className="text-[9px] bg-[#FFF8E7] text-[#C79545] font-bold px-1.5 py-0.2 rounded-md border border-[#F9BF3B]">
-                          اختبار عبور
+                          {isEn ? 'Gate Exam' : 'اختبار عبور'}
                         </span>
                       )}
                     </div>
                     <p className="text-[11px] text-gray-500 line-clamp-1 mt-0.5 font-medium">
-                      {node.description}
+                      {isEn ? t(node.description, 'en') : node.description}
                     </p>
                   </div>
                 </div>
@@ -142,7 +150,7 @@ export const WeekDetailModal: React.FC<WeekDetailModalProps> = ({ week, onClose 
                       onClick={() => handleStartTask(node)}
                       className="bg-[#F0F9F0] text-[#006304] border border-[#006304] font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 cursor-pointer"
                     >
-                      <span>مكسب</span>
+                      <span>{isEn ? 'Earned' : 'مكسب'}</span>
                       <span className="font-num text-[10px]">+{node.xpReward}XP</span>
                     </button>
                   ) : isAvailable ? (
@@ -151,7 +159,7 @@ export const WeekDetailModal: React.FC<WeekDetailModalProps> = ({ week, onClose 
                       className="bg-[#006304] hover:bg-[#005103] text-white font-bold px-3.5 py-1.5 rounded-xl text-xs shadow-2xs flex items-center gap-1 transition-transform active:scale-95 cursor-pointer"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>ابدأ</span>
+                      <span>{isEn ? 'Start' : 'ابدأ'}</span>
                     </button>
                   ) : (
                     <div className="p-1.5 text-gray-400">
