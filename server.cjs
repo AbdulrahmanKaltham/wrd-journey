@@ -159,6 +159,96 @@ function shuffleOptions(array) {
   }
   return copy;
 }
+function generateTrack2Nodes(weekNum, surahs) {
+  const nodes = [];
+  const surahListText = surahs.join("\u060C ");
+  const surahText = surahs.join(" \u0648 ");
+  const isFinalWeek = weekNum === 16;
+  nodes.push({
+    id: `t2_w${weekNum}_node_1`,
+    weekId: weekNum,
+    order: 1,
+    type: "listen",
+    title: "\u0627\u0633\u062A\u0645\u0627\u0639 \u0648\u062A\u0631\u062A\u064A\u0644",
+    surahName: surahListText,
+    surahsList: [...surahs],
+    audioFiles: surahs.map((s) => ({
+      surah: s,
+      url: `https://example.com/audio/${s}.mp3`
+    })),
+    description: `\u0627\u0633\u062A\u0645\u0639 \u0628\u0625\u0646\u0635\u0627\u062A \u0625\u0644\u0649 \u062A\u0644\u0627\u0648\u0629 \u062E\u0627\u0634\u0639\u0629 \u0644\u062C\u0645\u064A\u0639 \u0633\u0648\u0631 \u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0645\u0642\u0631\u0631\u0629 (${surahListText}) \u0644\u0636\u0628\u0637 \u0627\u0644\u0646\u0637\u0642 \u0648\u0623\u062D\u0643\u0627\u0645 \u0627\u0644\u062A\u0644\u0627\u0648\u0629.`,
+    xpReward: 15,
+    required: true,
+    audioSample: "https://example.com/audio.mp3"
+  });
+  nodes.push({
+    id: `t2_w${weekNum}_node_2`,
+    weekId: weekNum,
+    order: 2,
+    type: "memorize",
+    title: "\u062A\u0643\u0631\u0627\u0631 \u0648\u062D\u0641\u0638",
+    surahName: surahListText,
+    description: `\u0627\u062D\u0641\u0638 \u0627\u0644\u0645\u0642\u0627\u0637\u0639 \u0648\u0627\u0644\u0633\u0648\u0631 \u0627\u0644\u0645\u0642\u0631\u0631\u0629 \u0644\u0647\u0630\u0627 \u0627\u0644\u0623\u0633\u0628\u0648\u0639 (${surahListText}) \u0645\u0639 \u062A\u0643\u0631\u0627\u0631 \u0627\u0644\u0622\u064A\u0627\u062A \u0628\u062A\u0623\u0646\u0651\u064D \u0648\u062A\u062F\u0628\u0631.`,
+    xpReward: 20,
+    required: true
+  });
+  nodes.push({
+    id: `t2_w${weekNum}_node_3`,
+    weekId: weekNum,
+    order: 3,
+    type: "recite",
+    title: "\u062A\u0633\u0645\u064A\u0639 \u0648\u0627\u0639\u062A\u0645\u0627\u062F",
+    surahName: surahListText,
+    description: `\u0633\u062C\u0651\u0644 \u062A\u0644\u0627\u0648\u062A\u0643 \u0644\u062C\u0645\u064A\u0639 \u0633\u0648\u0631 \u0627\u0644\u0623\u0633\u0628\u0648\u0639 (${surahListText}) \u0623\u0648 \u0642\u0645 \u0628\u0627\u0644\u062A\u0633\u0645\u064A\u0639 \u0641\u064A \u0627\u0644\u062D\u0644\u0642\u0629 \u0644\u0644\u062A\u0623\u0643\u062F \u0645\u0646 \u0633\u0644\u0627\u0633\u0629 \u0627\u0644\u062D\u0641\u0638 \u0648\u0636\u0628\u0637 \u0627\u0644\u0622\u064A\u0627\u062A.`,
+    xpReward: 25,
+    required: true
+  });
+  nodes.push({
+    id: `t2_w${weekNum}_node_4`,
+    weekId: weekNum,
+    order: 4,
+    type: "review",
+    title: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0648\u062A\u062B\u0628\u064A\u062A",
+    surahName: surahListText,
+    description: `\u0645\u0631\u0627\u062C\u0639\u0629 \u0630\u0627\u062A\u064A\u0629 \u0648\u062A\u0645\u0643\u064A\u0646 \u0634\u0627\u0645\u0644 \u0644\u062C\u0645\u064A\u0639 \u0633\u0648\u0631 \u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0645\u0642\u0631\u0631\u0629 (${surahListText}) \u0644\u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062D\u0641\u0638 \u0648\u0627\u0644\u062A\u0645\u0643\u064A\u0646.`,
+    xpReward: 30,
+    required: true
+  });
+  const gateQ1Correct = `${surahs.length} \u0633\u0648\u0631`;
+  const gateQ1Options = shuffleOptions([gateQ1Correct, "12 \u0633\u0648\u0631\u0629", "1 \u0633\u0648\u0631\u0629", "20 \u0633\u0648\u0631\u0629"]);
+  const gateQ2Correct = "\u0627\u0644\u0628\u0631\u0643\u0629 \u0648\u0627\u0644\u062B\u0628\u0627\u062A \u0648\u0627\u0644\u0623\u062C\u0631 \u0627\u0644\u0639\u0638\u064A\u0645 \u0648\u0631\u0641\u0639\u0629 \u0627\u0644\u062F\u0631\u062C\u0627\u062A";
+  const gateQ2Options = shuffleOptions([gateQ2Correct, "\u0627\u0644\u0633\u0631\u0639\u0629 \u062F\u0648\u0646 \u062A\u062F\u0628\u0631", "\u0627\u0644\u062A\u0641\u0627\u062E\u0631 \u0641\u0642\u0637", "\u0644\u0627 \u0634\u064A\u0621"]);
+  nodes.push({
+    id: `t2_w${weekNum}_gate`,
+    weekId: weekNum,
+    order: 5,
+    type: "gate",
+    title: isFinalWeek ? "\u{1F3C6} \u0642\u0644\u0639\u0629 \u0627\u0644\u0627\u062E\u062A\u0628\u0627\u0631 \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0644\u062C\u0632\u0621 \u0639\u0645 \u0648\u062C\u0632\u0621 \u062A\u0628\u0627\u0631\u0643" : `\u{1F3C6} \u0628\u0648\u0627\u0628\u0629 \u0627\u0644\u0623\u0633\u0628\u0648\u0639 ${weekNum}`,
+    surahName: surahListText,
+    description: isFinalWeek ? "\u0627\u0644\u0627\u062E\u062A\u0628\u0627\u0631 \u0627\u0644\u062E\u062A\u0627\u0645\u064A \u0627\u0644\u0634\u0627\u0645\u0644 \u0644\u0625\u062A\u0642\u0627\u0646 \u062C\u0632\u0623\u064A \u0639\u0645 \u0648\u062A\u0628\u0627\u0631\u0643 \u0648\u0627\u0644\u0627\u0631\u062A\u0642\u0627\u0621 \u0641\u064A \u062F\u0631\u062C\u0627\u062A \u0627\u0644\u062D\u0641\u0638!" : `\u0627\u062E\u062A\u0628\u0627\u0631 \u0627\u0644\u062A\u062B\u0628\u064A\u062A \u0648\u0627\u0644\u0639\u0628\u0648\u0631 \u0644\u0644\u0623\u0633\u0627\u0628\u064A\u0639 \u0627\u0644\u062A\u0627\u0644\u064A\u0629 (${surahText}).`,
+    xpReward: isFinalWeek ? 350 : 100,
+    required: true,
+    questions: [
+      {
+        id: `t2_g_${weekNum}_1`,
+        type: "mcq",
+        question: `\u0643\u0645 \u0639\u062F\u062F \u0627\u0644\u0633\u0648\u0631 \u0627\u0644\u0645\u0642\u0631\u0631\u0629 \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u0623\u0633\u0628\u0648\u0639 (${surahText})\u061F`,
+        options: gateQ1Options,
+        correctAnswer: gateQ1Correct,
+        explanation: `\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u064A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 ${surahs.length} \u0633\u0648\u0631 \u062D\u0633\u0628 \u0645\u0646\u0647\u062C \u0627\u0644\u0645\u0633\u0627\u0631 \u0627\u0644\u062B\u0627\u0646\u064A \u0628\u0646\u0627\u062F\u064A \u0648\u0631\u062F.`
+      },
+      {
+        id: `t2_g_${weekNum}_2`,
+        type: "mcq",
+        question: "\u0645\u0627 \u0627\u0644\u062B\u0645\u0631\u0629 \u0627\u0644\u0643\u0628\u0631\u0649 \u0645\u0646 \u0627\u0644\u0645\u0648\u0627\u0632\u0646\u0629 \u0628\u064A\u0646 \u062D\u0641\u0638 \u0627\u0644\u0633\u0648\u0631 \u0648\u0645\u0631\u0627\u062C\u0639\u062A\u0647\u0627 \u064A\u0648\u0645\u064A\u0627\u064B\u061F",
+        options: gateQ2Options,
+        correctAnswer: gateQ2Correct,
+        explanation: "\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0645\u0633\u062A\u0645\u0631\u0629 \u0645\u0639 \u0627\u0644\u062D\u0641\u0638 \u0627\u0644\u062C\u062F\u064A\u062F \u062A\u0636\u0645\u0646 \u062B\u0628\u0627\u062A \u0627\u0644\u0642\u0631\u0622\u0646 \u0641\u064A \u0627\u0644\u0635\u062F\u0648\u0631."
+      }
+    ]
+  });
+  return nodes;
+}
 var WEEKS_DATA = [
   {
     id: 1,
@@ -365,6 +455,216 @@ var WEEKS_DATA = [
     nodes: generateWeekNodes(17, ["\u0627\u0644\u0627\u062E\u062A\u0628\u0627\u0631 \u0627\u0644\u062E\u062A\u0627\u0645\u064A"])
   }
 ];
+var WEEKS_DATA_TRACK_2 = [
+  {
+    id: 1,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 1,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0623\u0648\u0644",
+    startDate: "30/8",
+    endDate: "5/9",
+    surahs: ["\u0627\u0644\u0646\u0627\u0633", "\u0627\u0644\u0641\u0644\u0642", "\u0627\u0644\u0625\u062E\u0644\u0627\u0635", "\u0627\u0644\u0645\u0633\u062F", "\u0627\u0644\u0646\u0635\u0631", "\u0627\u0644\u0643\u0627\u0641\u0631\u0648\u0646", "\u0627\u0644\u0643\u0648\u062B\u0631", "\u0627\u0644\u0645\u0627\u0639\u0648\u0646", "\u0642\u0631\u064A\u0634", "\u0627\u0644\u0641\u064A\u0644", "\u0627\u0644\u0647\u0645\u0632\u0629", "\u0627\u0644\u0639\u0635\u0631"],
+    status: "IN_PROGRESS",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(1, ["\u0627\u0644\u0646\u0627\u0633", "\u0627\u0644\u0641\u0644\u0642", "\u0627\u0644\u0625\u062E\u0644\u0627\u0635", "\u0627\u0644\u0645\u0633\u062F", "\u0627\u0644\u0646\u0635\u0631", "\u0627\u0644\u0643\u0627\u0641\u0631\u0648\u0646", "\u0627\u0644\u0643\u0648\u062B\u0631", "\u0627\u0644\u0645\u0627\u0639\u0648\u0646", "\u0642\u0631\u064A\u0634", "\u0627\u0644\u0641\u064A\u0644", "\u0627\u0644\u0647\u0645\u0632\u0629", "\u0627\u0644\u0639\u0635\u0631"])
+  },
+  {
+    id: 2,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 2,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062B\u0627\u0646\u064A",
+    startDate: "6/9",
+    endDate: "12/9",
+    surahs: ["\u0627\u0644\u062A\u0643\u0627\u062B\u0631", "\u0627\u0644\u0642\u0627\u0631\u0639\u0629", "\u0627\u0644\u0639\u0627\u062F\u064A\u0627\u062A", "\u0627\u0644\u0632\u0644\u0632\u0644\u0629"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(2, ["\u0627\u0644\u062A\u0643\u0627\u062B\u0631", "\u0627\u0644\u0642\u0627\u0631\u0639\u0629", "\u0627\u0644\u0639\u0627\u062F\u064A\u0627\u062A", "\u0627\u0644\u0632\u0644\u0632\u0644\u0629"])
+  },
+  {
+    id: 3,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 3,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062B\u0627\u0644\u062B",
+    startDate: "13/9",
+    endDate: "19/9",
+    surahs: ["\u0627\u0644\u0628\u064A\u0646\u0629", "\u0627\u0644\u0642\u062F\u0631", "\u0627\u0644\u0639\u0644\u0642", "\u0627\u0644\u062A\u064A\u0646", "\u0627\u0644\u0634\u0631\u062D", "\u0627\u0644\u0636\u062D\u0649"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(3, ["\u0627\u0644\u0628\u064A\u0646\u0629", "\u0627\u0644\u0642\u062F\u0631", "\u0627\u0644\u0639\u0644\u0642", "\u0627\u0644\u062A\u064A\u0646", "\u0627\u0644\u0634\u0631\u062D", "\u0627\u0644\u0636\u062D\u0649"])
+  },
+  {
+    id: 4,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 4,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0631\u0627\u0628\u0639",
+    startDate: "20/9",
+    endDate: "26/9",
+    surahs: ["\u0627\u0644\u0644\u064A\u0644", "\u0627\u0644\u0634\u0645\u0633", "\u0627\u0644\u0628\u0644\u062F", "\u0627\u0644\u0641\u062C\u0631"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(4, ["\u0627\u0644\u0644\u064A\u0644", "\u0627\u0644\u0634\u0645\u0633", "\u0627\u0644\u0628\u0644\u062F", "\u0627\u0644\u0641\u062C\u0631"])
+  },
+  {
+    id: 5,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 5,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062E\u0627\u0645\u0633",
+    startDate: "27/9",
+    endDate: "3/10",
+    surahs: ["\u0627\u0644\u063A\u0627\u0634\u064A\u0629", "\u0627\u0644\u0623\u0639\u0644\u0649", "\u0627\u0644\u0637\u0627\u0631\u0642", "\u0627\u0644\u0628\u0631\u0648\u062C"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(5, ["\u0627\u0644\u063A\u0627\u0634\u064A\u0629", "\u0627\u0644\u0623\u0639\u0644\u0649", "\u0627\u0644\u0637\u0627\u0631\u0642", "\u0627\u0644\u0628\u0631\u0648\u062C"])
+  },
+  {
+    id: 6,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 6,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0633\u0627\u062F\u0633",
+    startDate: "4/10",
+    endDate: "10/10",
+    surahs: ["\u0627\u0644\u0627\u0646\u0634\u0642\u0627\u0642", "\u0627\u0644\u0645\u0637\u0641\u0641\u064A\u0646"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(6, ["\u0627\u0644\u0627\u0646\u0634\u0642\u0627\u0642", "\u0627\u0644\u0645\u0637\u0641\u0641\u064A\u0646"])
+  },
+  {
+    id: 7,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 7,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0633\u0627\u0628\u0639",
+    startDate: "11/10",
+    endDate: "17/10",
+    surahs: ["\u0627\u0644\u0627\u0646\u0641\u0637\u0627\u0631", "\u0627\u0644\u062A\u0643\u0648\u064A\u0631"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(7, ["\u0627\u0644\u0627\u0646\u0641\u0637\u0627\u0631", "\u0627\u0644\u062A\u0643\u0648\u064A\u0631"])
+  },
+  {
+    id: 8,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 8,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062B\u0627\u0645\u0646",
+    startDate: "18/10",
+    endDate: "24/10",
+    surahs: ["\u0639\u0628\u0633", "\u0627\u0644\u0646\u0627\u0632\u0639\u0627\u062A"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(8, ["\u0639\u0628\u0633", "\u0627\u0644\u0646\u0627\u0632\u0639\u0627\u062A"])
+  },
+  {
+    id: 9,
+    worldId: "juz_amma",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 9,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062A\u0627\u0633\u0639",
+    startDate: "25/10",
+    endDate: "31/10",
+    surahs: ["\u0627\u0644\u0646\u0628\u0623", "\u0627\u0644\u0645\u0631\u0633\u0644\u0627\u062A"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(9, ["\u0627\u0644\u0646\u0628\u0623", "\u0627\u0644\u0645\u0631\u0633\u0644\u0627\u062A"])
+  },
+  {
+    id: 10,
+    worldId: "juz_tabarak",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 10,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0639\u0627\u0634\u0631",
+    startDate: "1/11",
+    endDate: "7/11",
+    surahs: ["\u0627\u0644\u0625\u0646\u0633\u0627\u0646", "\u0627\u0644\u0642\u064A\u0627\u0645\u0629"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(10, ["\u0627\u0644\u0625\u0646\u0633\u0627\u0646", "\u0627\u0644\u0642\u064A\u0627\u0645\u0629"])
+  },
+  {
+    id: 11,
+    worldId: "juz_tabarak",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 11,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062D\u0627\u062F\u064A \u0639\u0634\u0631",
+    startDate: "8/11",
+    endDate: "14/11",
+    surahs: ["\u0627\u0644\u0645\u062F\u062B\u0631", "\u0627\u0644\u0645\u0632\u0645\u0644"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(11, ["\u0627\u0644\u0645\u062F\u062B\u0631", "\u0627\u0644\u0645\u0632\u0645\u0644"])
+  },
+  {
+    id: 12,
+    worldId: "juz_tabarak",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 12,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062B\u0627\u0646\u064A \u0639\u0634\u0631",
+    startDate: "15/11",
+    endDate: "21/11",
+    surahs: ["\u0627\u0644\u062C\u0646", "\u0646\u0648\u062D"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(12, ["\u0627\u0644\u062C\u0646", "\u0646\u0648\u062D"])
+  },
+  {
+    id: 13,
+    worldId: "juz_tabarak",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 13,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062B\u0627\u0644\u062B \u0639\u0634\u0631",
+    startDate: "22/11",
+    endDate: "28/11",
+    surahs: ["\u0627\u0644\u0645\u0639\u0627\u0631\u062C", "\u0627\u0644\u062D\u0627\u0642\u0629"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(13, ["\u0627\u0644\u0645\u0639\u0627\u0631\u062C", "\u0627\u0644\u062D\u0627\u0642\u0629"])
+  },
+  {
+    id: 14,
+    worldId: "juz_tabarak",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 14,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0631\u0627\u0628\u0639 \u0639\u0634\u0631",
+    startDate: "29/11",
+    endDate: "5/12",
+    surahs: ["\u0627\u0644\u0642\u0644\u0645"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(14, ["\u0627\u0644\u0642\u0644\u0645"])
+  },
+  {
+    id: 15,
+    worldId: "juz_tabarak",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 15,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u062E\u0627\u0645\u0633 \u0639\u0634\u0631",
+    startDate: "6/12",
+    endDate: "12/12",
+    surahs: ["\u0627\u0644\u0645\u0644\u0643"],
+    status: "LOCKED",
+    xpReward: 100,
+    nodes: generateTrack2Nodes(15, ["\u0627\u0644\u0645\u0644\u0643"])
+  },
+  {
+    id: 16,
+    worldId: "juz_tabarak",
+    trackId: "juz_amma_tabarak",
+    weekNumber: 16,
+    title: "\u0627\u0644\u0623\u0633\u0628\u0648\u0639 \u0627\u0644\u0633\u0627\u062F\u0633 \u0639\u0634\u0631",
+    startDate: "13/12",
+    endDate: "19/12",
+    surahs: ["\u0645\u0631\u0627\u062C\u0639\u0629 \u0634\u0627\u0645\u0644\u0629 \u0648\u0627\u062E\u062A\u0628\u0627\u0631 \u062E\u062A\u0627\u0645\u064A"],
+    status: "LOCKED",
+    xpReward: 300,
+    nodes: generateTrack2Nodes(16, ["\u0645\u0631\u0627\u062C\u0639\u0629 \u0634\u0627\u0645\u0644\u0629 \u0648\u0627\u062E\u062A\u0628\u0627\u0631 \u062E\u062A\u0627\u0645\u064A"])
+  }
+];
 
 // src/services/streakService.ts
 function getTodayDateString() {
@@ -382,43 +682,40 @@ function getYesterdayDateString() {
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
-function updateStreakOnActivity(currentStreak = 0, longestStreak = 0, lastActiveDate = "", completedDates = []) {
+function updateStreakOnActivity(currentStreak = 0, longestStreak = 0, lastActiveDate, completedDates = []) {
   const today = getTodayDateString();
   const yesterday = getYesterdayDateString();
-  const updatedCompletedDates = Array.from(/* @__PURE__ */ new Set([...completedDates, today]));
+  const newCompletedDates = Array.isArray(completedDates) ? [...completedDates] : [];
+  if (!newCompletedDates.includes(today)) {
+    newCompletedDates.push(today);
+  }
   if (lastActiveDate === today) {
+    const s = Math.max(1, currentStreak);
     return {
-      streak: Math.max(1, currentStreak),
-      longestStreak: Math.max(currentStreak, longestStreak, 1),
-      lastActiveDate: today,
-      completedDates: updatedCompletedDates,
-      streakIncreased: false,
-      streakReset: false,
-      isFirstToday: false
+      streak: s,
+      longestStreak: Math.max(longestStreak || 0, s),
+      streakMaintained: true,
+      isNewDay: false,
+      completedDates: newCompletedDates
     };
   }
-  let newStreak = 1;
-  let streakIncreased = false;
-  let streakReset = false;
   if (lastActiveDate === yesterday) {
-    newStreak = currentStreak + 1;
-    streakIncreased = true;
-  } else if (!lastActiveDate) {
-    newStreak = 1;
-    streakIncreased = true;
-  } else {
-    newStreak = 1;
-    streakReset = true;
+    const newStreak2 = (currentStreak || 0) + 1;
+    return {
+      streak: newStreak2,
+      longestStreak: Math.max(longestStreak || 0, newStreak2),
+      streakMaintained: true,
+      isNewDay: true,
+      completedDates: newCompletedDates
+    };
   }
-  const newLongestStreak = Math.max(newStreak, longestStreak);
+  const newStreak = 1;
   return {
     streak: newStreak,
-    longestStreak: newLongestStreak,
-    lastActiveDate: today,
-    completedDates: updatedCompletedDates,
-    streakIncreased,
-    streakReset,
-    isFirstToday: true
+    longestStreak: Math.max(longestStreak || 0, newStreak),
+    streakMaintained: false,
+    isNewDay: true,
+    completedDates: newCompletedDates
   };
 }
 
@@ -490,6 +787,7 @@ function supabaseRequest(pathName, options = {}) {
     req.end();
   });
 }
+var studentNamesMemoryCache = /* @__PURE__ */ new Map();
 async function startServer() {
   const app = (0, import_express.default)();
   const PORT = 3e3;
@@ -1003,16 +1301,17 @@ async function startServer() {
       const studentCircleMap = /* @__PURE__ */ new Map();
       const studentIds = [];
       try {
-        let studentQuery = `/rest/v1/profiles?role=eq.student&select=id,name,circle_id,teacher_id`;
+        let studentQuery = `/rest/v1/profiles?role=eq.student&select=id,name,display_name,circle_id,teacher_id`;
         if (isValidUUID(teacherId)) {
-          studentQuery = `/rest/v1/profiles?role=eq.student&or=(teacher_id.eq.${teacherId}${circleIds.length > 0 ? `,circle_id.in.(${circleIds.join(",")})` : ""})&select=id,name,circle_id,teacher_id`;
+          studentQuery = `/rest/v1/profiles?role=eq.student&or=(teacher_id.eq.${teacherId}${circleIds.length > 0 ? `,circle_id.in.(${circleIds.join(",")})` : ""})&select=id,name,display_name,circle_id,teacher_id`;
         }
-        const profRes = await supabaseRequest(studentQuery, { token: userToken });
+        const profRes = await supabaseRequest(studentQuery, { useServiceRole: true, token: userToken });
         if (profRes.ok && Array.isArray(profRes.data)) {
           profRes.data.forEach((p) => {
             if (p.id) {
               studentIds.push(p.id);
-              if (p.name) studentNameMap.set(p.id, p.name);
+              const pName = p.display_name || p.name;
+              if (pName && pName.trim()) studentNameMap.set(p.id, pName.trim());
               if (p.circle_id) studentCircleMap.set(p.id, p.circle_id);
             }
           });
@@ -1040,8 +1339,32 @@ async function startServer() {
           const recRes = await supabaseRequest(recQuery, { token: userToken });
           if (recRes.ok && Array.isArray(recRes.data)) {
             dbRecordings = recRes.data.filter(
-              (r) => r && r.student_id && studentIds.includes(r.student_id) && r.status !== "deleted" && r.status !== "cancelled_reset"
+              (r) => r && r.student_id && r.status !== "deleted" && r.status !== "cancelled_reset"
             );
+            const missingStudentIds = Array.from(
+              new Set(dbRecordings.map((r) => r.student_id).filter((id) => !studentNameMap.has(id)))
+            );
+            if (missingStudentIds.length > 0) {
+              try {
+                const inFilter = missingStudentIds.map((id) => `"${id}"`).join(",");
+                const missingProfsRes = await supabaseRequest(
+                  `/rest/v1/profiles?id=in.(${inFilter})&select=id,name,display_name,circle_id`,
+                  { useServiceRole: true, token: userToken }
+                );
+                if (missingProfsRes.ok && Array.isArray(missingProfsRes.data)) {
+                  missingProfsRes.data.forEach((p) => {
+                    const pName = p.display_name || p.name;
+                    if (pName && pName.trim() && pName.trim() !== "\u0637\u0627\u0644\u0628 \u0642\u0631\u0622\u0646") {
+                      studentNameMap.set(p.id, pName.trim());
+                      studentNamesMemoryCache.set(p.id, pName.trim());
+                    }
+                    if (p.circle_id) studentCircleMap.set(p.id, p.circle_id);
+                  });
+                }
+              } catch (fetchErr) {
+                console.warn("Notice fetching missing student profiles:", fetchErr);
+              }
+            }
           }
         }
       } catch (e) {
@@ -1078,7 +1401,7 @@ async function startServer() {
         };
       };
       const allSubmissions = dbRecordings.map((rec) => {
-        const studentName = studentNameMap.get(rec.student_id) || "\u0637\u0627\u0644\u0628 \u0642\u0631\u0622\u0646";
+        const studentName = studentNameMap.get(rec.student_id) || studentNamesMemoryCache.get(rec.student_id) || rec.student_name || "\u0637\u0627\u0644\u0628";
         const circleId = rec.circle_id || studentCircleMap.get(rec.student_id) || "";
         const details = resolveSubmissionDetails(rec.node_id, rec.week_id);
         return {
@@ -1261,10 +1584,13 @@ async function startServer() {
       } catch (dbErr) {
         console.warn("\u26A0\uFE0F [API /api/submissions/submit] Exception while saving to DB recordings table:", dbErr);
       }
+      if (studentId && finalStudentName && finalStudentName !== "\u0637\u0627\u0644\u0628 \u0642\u0631\u0622\u0646" && finalStudentName !== "\u0637\u0627\u0644\u0628") {
+        studentNamesMemoryCache.set(studentId, finalStudentName.trim());
+      }
       const newSubmission = {
         id: savedRecordingId,
         studentId,
-        studentName: finalStudentName || "\u0637\u0627\u0644\u0628 \u0642\u0631\u0622\u0646",
+        studentName: finalStudentName || (studentId ? studentNamesMemoryCache.get(studentId) : null) || "\u0637\u0627\u0644\u0628",
         circleId: finalCircleId || "",
         teacherId: finalTeacherId || "",
         nodeId,
@@ -1401,16 +1727,22 @@ async function startServer() {
             const existingNodes = Array.isArray(profile.completed_nodes) ? profile.completed_nodes : [];
             const newNodes = existingNodes.includes(nodeId) ? existingNodes : [...existingNodes, nodeId];
             const newXp = (profile.xp || 0) + xpReward;
+            const isGateNode = nodeId.includes("gate") || req.body.nodeTitle && req.body.nodeTitle.includes("\u0628\u0648\u0627\u0628\u0629");
+            const existingWeeks = Array.isArray(profile.completed_weeks) ? profile.completed_weeks : [];
+            const newWeeks = isGateNode && weekId && !existingWeeks.includes(weekId) ? [...existingWeeks, weekId] : existingWeeks;
+            const newCurrentWeek = isGateNode && weekId ? Math.max(profile.current_week || 1, weekId + 1) : profile.current_week || 1;
             await supabaseRequest(`/rest/v1/profiles?id=eq.${studentId}`, {
               method: "PATCH",
               body: {
                 completed_nodes: newNodes,
+                completed_weeks: newWeeks,
+                current_week: newCurrentWeek,
                 xp: newXp
               },
               useServiceRole: true,
               token: userToken
             });
-            console.log(`\u2705 [API /api/submissions/review] Student ${studentId} marked completed for node ${nodeId} in DB. XP: ${newXp}`);
+            console.log(`\u2705 [API /api/submissions/review] Student ${studentId} marked completed for node ${nodeId} in DB. Weeks: ${JSON.stringify(newWeeks)}, current_week: ${newCurrentWeek}, XP: ${newXp}`);
           }
         } catch (profErr) {
           console.warn("Notice updating student profile on review:", profErr);
