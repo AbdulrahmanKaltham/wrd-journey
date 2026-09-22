@@ -32,6 +32,7 @@ import {
   Clock,
   Globe,
   Compass,
+  Loader2,
 } from 'lucide-react';
 import { AvatarStyle, OutfitColor, BagStyle, AccessoryStyle, UserRole, UserGender, Circle, NodeSubmission, TrackId, Language } from '../types';
 import { getAvailableCircles, getProfile, getStudentSubmissions } from '../services/supabaseService';
@@ -58,6 +59,7 @@ export const ProfilePage: React.FC = () => {
     setLanguage,
     setTrack,
     t,
+    requestCircleTransfer,
   } = useSupabase();
 
   const [isTrackModalOpen, setIsTrackModalOpen] = useState(false);
@@ -252,12 +254,36 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
-  const handleSendChangeCircleRequest = () => {
-    setIsChangeCircleModalOpen(false);
-    setChangeCircleSuccessNotice(true);
-    setTimeout(() => {
-      setChangeCircleSuccessNotice(false);
-    }, 6000);
+  const handleSendChangeCircleRequest = async () => {
+    if (!requestedNewCircleCode) {
+      alert(language === 'en' ? 'Please select a circle to request transfer.' : 'يرجى اختيار الحلقة المطلوب الانتقال إليها.');
+      return;
+    }
+    const selectedCircle = availableCircles.find(
+      c => c.code === requestedNewCircleCode || c.id === requestedNewCircleCode
+    );
+    if (!selectedCircle) {
+      alert(language === 'en' ? 'Selected circle not found.' : 'لم يتم العثور على الحلقة المختارة.');
+      return;
+    }
+
+    setCircleActionLoading(true);
+    try {
+      const res = await requestCircleTransfer(selectedCircle.id, selectedCircle.name);
+      setIsChangeCircleModalOpen(false);
+      setCircleActionLoading(false);
+      if (res.success) {
+        setChangeCircleSuccessNotice(true);
+        setTimeout(() => {
+          setChangeCircleSuccessNotice(false);
+        }, 6000);
+      } else {
+        alert(res.message || (language === 'en' ? 'Failed to send transfer request.' : 'فشل إرسال طلب النقل.'));
+      }
+    } catch (err: any) {
+      setCircleActionLoading(false);
+      alert(err.message || (language === 'en' ? 'Error sending request.' : 'حدث خطأ أثناء إرسال الطلب.'));
+    }
   };
 
   const handleSaveName = (e: React.FormEvent) => {
@@ -1323,11 +1349,20 @@ export const ProfilePage: React.FC = () => {
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
+                disabled={circleActionLoading || !requestedNewCircleCode}
                 onClick={handleSendChangeCircleRequest}
-                className="flex-1 bg-[#006304] hover:bg-[#005103] text-white font-bold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                className="flex-1 bg-[#006304] hover:bg-[#005103] text-white font-bold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
               >
-                <Send className="w-3.5 h-3.5" />
-                <span>{language === 'en' ? 'Send Request' : 'إرسال طلب التغيير'}</span>
+                {circleActionLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {circleActionLoading
+                    ? (language === 'en' ? 'Sending...' : 'جاري الإرسال...')
+                    : (language === 'en' ? 'Send Request' : 'إرسال طلب التغيير')}
+                </span>
               </button>
 
               <button

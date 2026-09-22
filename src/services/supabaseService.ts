@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
-import { Circle, NodeSubmission } from '../types';
+import { Circle, NodeSubmission, AppNotification, NotificationType } from '../types';
 import { getAllTracksWeeks } from '../data/quranJourneyData';
 
 export const resolveSubmissionMeta = (nodeId?: string, weekId?: number) => {
@@ -1640,6 +1640,7 @@ export const reviewStudentSubmissionInDB = async (params: {
   weekId?: number;
   submissionId?: string;
   nodeTitle?: string;
+  teacherName?: string;
 }): Promise<{ success: boolean; error?: string; profile?: any }> => {
   const {
     studentId,
@@ -1651,6 +1652,7 @@ export const reviewStudentSubmissionInDB = async (params: {
     weekId = 1,
     submissionId,
     nodeTitle,
+    teacherName,
   } = params;
 
   if (!studentId || !nodeId) {
@@ -1672,6 +1674,45 @@ export const reviewStudentSubmissionInDB = async (params: {
   const cleanRecId = (submissionId && !submissionId.includes('_') && isUUID(submissionId)) ? submissionId : null;
   const cleanStudentId = isUUID(studentId) ? studentId : null;
 
+  // إرسال إشعار فوري في الخلفية للطالب بنتيجة المراجعة
+  const sendStudentNotice = () => {
+    if (!cleanStudentId) return;
+    const resolvedTeacher = teacherName || 'المعلم';
+    const resolvedTitle = nodeTitle || resolveSubmissionMeta(nodeId, weekId).nodeTitle || 'تسميع السور';
+
+    if (isApproved) {
+      createNotificationInDB({
+        userId: cleanStudentId,
+        type: 'recitation_approved',
+        title: 'تم اعتماد تسميعك ✨',
+        message: `اعتمد المعلم (${resolvedTeacher}) تسميعك لمهمة (${resolvedTitle}). التقدير: (${finalRating}).`,
+        data: {
+          recordingId: cleanRecId,
+          nodeId,
+          nodeTitle: resolvedTitle,
+          rating: finalRating,
+          teacherNotes: finalNotes,
+          teacherName: resolvedTeacher,
+          xpReward: Number(xpReward) || 25,
+        },
+      }).catch(e => console.warn('⚠️ [reviewStudentSubmissionInDB] Notification notice warning:', e));
+    } else {
+      createNotificationInDB({
+        userId: cleanStudentId,
+        type: 'recitation_practice',
+        title: 'طلب إعادة تدريب 🔄',
+        message: `طلب المعلم (${resolvedTeacher}) إعادة تسميع مهمة (${resolvedTitle}). الملاحظات: ${finalNotes || 'يرجى مراجعة الآيات والتسميع مجدداً'}`,
+        data: {
+          recordingId: cleanRecId,
+          nodeId,
+          nodeTitle: resolvedTitle,
+          teacherNotes: finalNotes,
+          teacherName: resolvedTeacher,
+        },
+      }).catch(e => console.warn('⚠️ [reviewStudentSubmissionInDB] Notification notice warning:', e));
+    }
+  };
+
   // 1. استخدام PostgreSQL RPC Function الفائقة السرعة لتنفيذ كل شيء بطلب شبكي واحد
   if (isApproved && cleanStudentId) {
     try {
@@ -1689,6 +1730,7 @@ export const reviewStudentSubmissionInDB = async (params: {
       if (!rpcError && rpcData && rpcData.success !== false) {
         console.log('⚡ [approve_submission RPC] Succeeded in 1 roundtrip:', rpcData);
         invalidateCache();
+        sendStudentNotice();
         return { success: true, profile: rpcData };
       }
       if (rpcError) {
@@ -1710,6 +1752,7 @@ export const reviewStudentSubmissionInDB = async (params: {
       if (!rpcError && rpcData && rpcData.success !== false) {
         console.log('⚡ [request_practice RPC] Succeeded in 1 roundtrip:', rpcData);
         invalidateCache();
+        sendStudentNotice();
         return { success: true };
       }
       if (rpcError) {
@@ -1800,6 +1843,7 @@ export const reviewStudentSubmissionInDB = async (params: {
 
     const [, updatedProfile] = await Promise.all([updateRecPromise, updateProfilePromise]);
     invalidateCache();
+    sendStudentNotice();
 
     return {
       success: true,
@@ -1820,7 +1864,8 @@ export const reviewStudentSubmissionInDB = async (params: {
 export const markHalaqahAbsentInDB = async (
   studentId: string,
   nodeId: string,
-  submissionId?: string
+  submissionId?: string,
+  teacherName?: string
 ): Promise<{ success: boolean; message?: string }> => {
   try {
     const isUUID = (str?: string | null): boolean => {
@@ -1830,6 +1875,22 @@ export const markHalaqahAbsentInDB = async (
 
     const cleanRecId = (submissionId && !submissionId.includes('_') && isUUID(submissionId)) ? submissionId : null;
     const cleanStudentId = isUUID(studentId) ? studentId : null;
+
+    const sendAbsentNotice = () => {
+      if (!cleanStudentId) return;
+      const resolvedTeacher = teacherName || 'المعلم';
+      createNotificationInDB({
+        userId: cleanStudentId,
+        type: 'recitation_absent',
+        title: 'تم تسجيل غيابك',
+        message: `سجّل المعلم (${resolvedTeacher}) غيابك عن حلقة اليوم.`,
+        data: {
+          nodeId,
+          date: new Date().toISOString(),
+          teacherName: resolvedTeacher,
+        },
+      }).catch(e => console.warn('⚠️ [markHalaqahAbsentInDB] Absent notice warning:', e));
+    };
 
     // 1. محاولة استخدام RPC دالة mark_absent السريعة
     if (cleanStudentId) {
@@ -1842,6 +1903,7 @@ export const markHalaqahAbsentInDB = async (
         if (!rpcError && rpcData && rpcData.success !== false) {
           console.log('⚡ [mark_absent RPC] Succeeded in 1 roundtrip:', rpcData);
           invalidateCache();
+          sendAbsentNotice();
           return { success: true, message: 'تم تسجيل غياب الطالب بنجاح' };
         }
       } catch (e) {}
@@ -1880,6 +1942,7 @@ export const markHalaqahAbsentInDB = async (
     }
 
     invalidateCache();
+    sendAbsentNotice();
     return { success: true, message: 'تم تسجيل غياب الطالب بنجاح' };
   } catch (err: any) {
     console.error('❌ [markHalaqahAbsentInDB] Error:', err);
@@ -2729,6 +2792,466 @@ export const getStudentProfilesByIds = async (ids: string[]): Promise<any[]> => 
   } catch (err) {
     console.warn('⚠️ [getStudentProfilesByIds] Caught error:', err);
     return [];
+  }
+};
+
+// ============================================================================
+// 19. دوال نظام الإشعارات (Notifications System)
+// ============================================================================
+
+/**
+ * تنسيق وقت الإشعار باللغة العربية ("منذ 5 دقائق"، "منذ ساعة"، "منذ يوم")
+ */
+export const formatNotificationTimeArabic = (dateString?: string): string => {
+  if (!dateString) return 'الآن';
+  const diffMs = Date.now() - new Date(dateString).getTime();
+  if (diffMs < 60000) return 'الآن';
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMinutes < 60) {
+    return diffMinutes <= 1 ? 'منذ دقيقة' : diffMinutes === 2 ? 'منذ دقيقتين' : `منذ ${diffMinutes} دقيقة`;
+  } else if (diffHours < 24) {
+    if (diffHours === 1) return 'منذ ساعة واحدة';
+    if (diffHours === 2) return 'منذ ساعتين';
+    if (diffHours <= 10) return `منذ ${diffHours} ساعات`;
+    return `منذ ${diffHours} ساعة`;
+  } else {
+    if (diffDays === 1) return 'منذ يوم';
+    if (diffDays === 2) return 'منذ يومين';
+    if (diffDays <= 10) return `منذ ${diffDays} أيام`;
+    return `منذ ${diffDays} يوماً`;
+  }
+};
+
+/**
+ * جلب قائمة إشعارات المستخدم مباشرة من جدول notifications
+ */
+export const fetchUserNotificationsFromDB = async (userId: string): Promise<AppNotification[]> => {
+  if (!userId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(60);
+
+    if (error) {
+      console.warn('⚠️ [fetchUserNotificationsFromDB] Error or table pending creation:', error.message);
+      if (typeof localStorage !== 'undefined') {
+        const local = localStorage.getItem(`ward_notifications_${userId}`);
+        if (local) {
+          try { return JSON.parse(local); } catch (e) {}
+        }
+      }
+      return [];
+    }
+
+    const notifications: AppNotification[] = (data || []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      type: row.type as NotificationType,
+      title: row.title,
+      message: row.message,
+      data: row.data || {},
+      isRead: !!row.is_read,
+      createdAt: row.created_at || new Date().toISOString(),
+    }));
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(`ward_notifications_${userId}`, JSON.stringify(notifications));
+      } catch (e) {}
+    }
+
+    return notifications;
+  } catch (err) {
+    console.warn('⚠️ [fetchUserNotificationsFromDB] Exception:', err);
+    return [];
+  }
+};
+
+/**
+ * إنشاء إشعار جديد في قاعدة بيانات Supabase
+ */
+export const createNotificationInDB = async (params: {
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data?: any;
+}): Promise<{ success: boolean; notification?: AppNotification; error?: any }> => {
+  const { userId, type, title, message, data = {} } = params;
+  if (!userId) return { success: false, error: 'User ID is required' };
+
+  try {
+    const payload = {
+      user_id: userId,
+      type,
+      title,
+      message,
+      data,
+      is_read: false,
+    };
+
+    const { data: inserted, error } = await supabase
+      .from('notifications')
+      .insert(payload)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.warn('⚠️ [createNotificationInDB] Supabase insert note:', error.message);
+      const fallbackNotif: AppNotification = {
+        id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        userId,
+        type,
+        title,
+        message,
+        data,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      };
+      if (typeof localStorage !== 'undefined') {
+        const key = `ward_notifications_${userId}`;
+        const existing = JSON.parse(localStorage.getItem(key) || '[]');
+        localStorage.setItem(key, JSON.stringify([fallbackNotif, ...existing]));
+      }
+      return { success: true, notification: fallbackNotif };
+    }
+
+    const notif: AppNotification = {
+      id: inserted.id,
+      userId: inserted.user_id,
+      type: inserted.type,
+      title: inserted.title,
+      message: inserted.message,
+      data: inserted.data || {},
+      isRead: !!inserted.is_read,
+      createdAt: inserted.created_at,
+    };
+
+    return { success: true, notification: notif };
+  } catch (err: any) {
+    console.error('❌ [createNotificationInDB] Exception:', err);
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * تعليم إشعار واحد كمقروء
+ */
+export const markNotificationAsReadInDB = async (notificationId: string): Promise<boolean> => {
+  if (!notificationId) return false;
+  try {
+    if (!notificationId.startsWith('local_')) {
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', notificationId);
+    }
+    return true;
+  } catch (err) {
+    console.warn('⚠️ [markNotificationAsReadInDB] Error:', err);
+    return false;
+  }
+};
+
+/**
+ * تعليم جميع إشعارات المستخدم كمقروءة
+ */
+export const markAllNotificationsAsReadInDB = async (userId: string): Promise<boolean> => {
+  if (!userId) return false;
+  try {
+    await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('user_id', userId)
+      .eq('is_read', false);
+
+    if (typeof localStorage !== 'undefined') {
+      const key = `ward_notifications_${userId}`;
+      const existing = JSON.parse(localStorage.getItem(key) || '[]');
+      const updated = existing.map((n: any) => ({ ...n, isRead: true }));
+      localStorage.setItem(key, JSON.stringify(updated));
+    }
+    return true;
+  } catch (err) {
+    console.warn('⚠️ [markAllNotificationsAsReadInDB] Error:', err);
+    return false;
+  }
+};
+
+/**
+ * حذف جميع إشعارات المستخدم
+ */
+export const deleteAllUserNotificationsInDB = async (userId: string): Promise<boolean> => {
+  if (!userId) return false;
+  try {
+    await supabase
+      .from('notifications')
+      .delete()
+      .eq('user_id', userId);
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(`ward_notifications_${userId}`);
+    }
+    return true;
+  } catch (err) {
+    console.warn('⚠️ [deleteAllUserNotificationsInDB] Error:', err);
+    return false;
+  }
+};
+
+/**
+ * إرسال طلب تغيير الحلقة من الطالب إلى معلم الحلقة الحالية
+ */
+export const requestCircleTransferInDB = async (params: {
+  studentId: string;
+  studentName: string;
+  currentCircleId: string;
+  currentCircleName: string;
+  targetCircleId: string;
+  targetCircleName: string;
+  teacherId?: string;
+}): Promise<{ success: boolean; message: string }> => {
+  const {
+    studentId,
+    studentName,
+    currentCircleId,
+    currentCircleName,
+    targetCircleId,
+    targetCircleName,
+  } = params;
+
+  let teacherId = params.teacherId;
+
+  // إذا لم يُحدد المعلم، محاولة استخراجه من بيانات الحلقة الحالية
+  if (!teacherId && currentCircleId) {
+    try {
+      const { data: circle } = await supabase
+        .from('circles')
+        .select('teacher_id')
+        .eq('id', currentCircleId)
+        .maybeSingle();
+      if (circle?.teacher_id) {
+        teacherId = circle.teacher_id;
+      }
+    } catch (e) {}
+  }
+
+  // إذا لم يتوفر بعد، جلبه من ملف الطالب
+  if (!teacherId && studentId) {
+    try {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('teacher_id')
+        .eq('id', studentId)
+        .maybeSingle();
+      if (prof?.teacher_id) {
+        teacherId = prof.teacher_id;
+      }
+    } catch (e) {}
+  }
+
+  if (!teacherId) {
+    return {
+      success: false,
+      message: 'لم يتم العثور على معلم حلقتك الحالية لإرسال الطلب إليه. يرجى التواصل مع إدارة المجمع.',
+    };
+  }
+
+  const title = 'طلب نقل من الحلقة';
+  const message = `الطالب (${studentName || 'طالب'}) يطلب الانتقال من (${currentCircleName || 'الحلقة الحالية'}) إلى (${targetCircleName || 'حلقة جديدة'})`;
+  const notifData = {
+    studentId,
+    studentName: studentName || 'طالب قرآن',
+    currentCircleId,
+    currentCircleName: currentCircleName || 'الحلقة الحالية',
+    targetCircleId,
+    targetCircleName: targetCircleName || 'حلقة جديدة',
+    status: 'pending',
+  };
+
+  const res = await createNotificationInDB({
+    userId: teacherId,
+    type: 'circle_transfer_request',
+    title,
+    message,
+    data: notifData,
+  });
+
+  if (!res.success) {
+    return {
+      success: false,
+      message: 'تعذر إرسال الطلب، يرجى التحقق من اتصال الإنترنت.',
+    };
+  }
+
+  return {
+    success: true,
+    message: 'تم إرسال طلبك إلى معلمك للموافقة بنجاح.',
+  };
+};
+
+/**
+ * معالجة رد المعلم على طلب تغيير الحلقة (قبول أو رفض)
+ */
+export const respondToCircleTransferInDB = async (params: {
+  notificationId: string;
+  action: 'accept' | 'reject';
+  teacherName: string;
+  studentId: string;
+  studentName?: string;
+  currentCircleId?: string;
+  currentCircleName?: string;
+  targetCircleId: string;
+  targetCircleName: string;
+}): Promise<{ success: boolean; message: string }> => {
+  const {
+    notificationId,
+    action,
+    teacherName,
+    studentId,
+    targetCircleId,
+    targetCircleName,
+    currentCircleId,
+  } = params;
+
+  if (!studentId || !targetCircleId) {
+    return { success: false, message: 'بيانات الطلب غير مكتملة' };
+  }
+
+  try {
+    if (action === 'accept') {
+      // 1. جلب معرف معلم الحلقة الجديدة وإضافة الطالب لمصفوفة student_ids
+      let targetTeacherId: string | null = null;
+      try {
+        const { data: targetCircle } = await supabase
+          .from('circles')
+          .select('teacher_id, student_ids')
+          .eq('id', targetCircleId)
+          .maybeSingle();
+
+        targetTeacherId = targetCircle?.teacher_id || null;
+
+        if (targetCircle) {
+          const existingStudents: string[] = Array.isArray(targetCircle.student_ids) ? targetCircle.student_ids : [];
+          if (!existingStudents.includes(studentId)) {
+            await supabase
+              .from('circles')
+              .update({ student_ids: [...existingStudents, studentId] })
+              .eq('id', targetCircleId);
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ [respondToCircleTransferInDB] Error updating target circle:', err);
+      }
+
+      // 2. إزالة الطالب من قائمة طلاب الحلقة السابقة
+      if (currentCircleId) {
+        try {
+          const { data: oldCircle } = await supabase
+            .from('circles')
+            .select('student_ids')
+            .eq('id', currentCircleId)
+            .maybeSingle();
+
+          if (oldCircle) {
+            const existingStudents: string[] = Array.isArray(oldCircle.student_ids) ? oldCircle.student_ids : [];
+            const filtered = existingStudents.filter(id => id !== studentId);
+            await supabase
+              .from('circles')
+              .update({ student_ids: filtered })
+              .eq('id', currentCircleId);
+          }
+        } catch (err) {
+          console.warn('⚠️ [respondToCircleTransferInDB] Error updating old circle:', err);
+        }
+      }
+
+      // 3. تحديث ملف الطالب في profiles
+      const updatePayload: Record<string, any> = {
+        circle_id: targetCircleId,
+      };
+      if (targetTeacherId) {
+        updatePayload.teacher_id = targetTeacherId;
+      }
+      await supabase
+        .from('profiles')
+        .update(updatePayload)
+        .eq('id', studentId);
+
+      // 4. إرسال إشعار فوري للطالب بقبول النقل
+      await createNotificationInDB({
+        userId: studentId,
+        type: 'circle_transfer_accepted',
+        title: 'تم قبول طلب النقل',
+        message: `وافق المعلم (${teacherName}) على نقل طلبك إلى (${targetCircleName}). مرحباً بك!`,
+        data: {
+          studentId,
+          targetCircleId,
+          targetCircleName,
+          teacherName,
+        },
+      });
+
+      // 5. تحديث الإشعار الأصلي لدى المعلم ليصبح مقروءاً ومكتملاً
+      if (notificationId && !notificationId.startsWith('local_')) {
+        await supabase
+          .from('notifications')
+          .update({
+            is_read: true,
+            data: {
+              ...params,
+              status: 'accepted',
+              processedAt: new Date().toISOString(),
+            },
+          })
+          .eq('id', notificationId);
+      }
+
+      invalidateCache();
+      return { success: true, message: `وافق المعلم على نقل الطالب إلى (${targetCircleName}) بنجاح.` };
+    } else {
+      // الرفض
+      // 1. إنشاء إشعار للطالب برفض النقل
+      await createNotificationInDB({
+        userId: studentId,
+        type: 'circle_transfer_rejected',
+        title: 'تم رفض طلب النقل',
+        message: `رفض المعلم (${teacherName}) طلبك لنقل إلى (${targetCircleName}). يمكنك البقاء في حلقتك الحالية أو اختيار حلقة أخرى.`,
+        data: {
+          studentId,
+          targetCircleId,
+          targetCircleName,
+          teacherName,
+        },
+      });
+
+      // 2. تحديث الإشعار الأصلي لدى المعلم
+      if (notificationId && !notificationId.startsWith('local_')) {
+        await supabase
+          .from('notifications')
+          .update({
+            is_read: true,
+            data: {
+              ...params,
+              status: 'rejected',
+              processedAt: new Date().toISOString(),
+            },
+          })
+          .eq('id', notificationId);
+      }
+
+      invalidateCache();
+      return { success: true, message: 'تم رفض طلب نقل الحلقة.' };
+    }
+  } catch (err: any) {
+    console.error('❌ [respondToCircleTransferInDB] Error:', err);
+    return { success: false, message: err.message || 'حدث خطأ أثناء معالجة الطلب.' };
   }
 };
 

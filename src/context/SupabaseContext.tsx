@@ -16,6 +16,7 @@ import {
   Circle,
   TrackId,
   Language,
+  AppNotification,
 } from '../types';
 import { WEEKS_DATA, INITIAL_BADGES, INITIAL_DECORATIONS, getWeeksForTrack } from '../data/quranJourneyData';
 import { t as i18nT } from '../lib/i18n';
@@ -107,6 +108,17 @@ export interface SupabaseContextType {
   setLanguage: (lang: Language) => Promise<void>;
   setTrack: (track: TrackId) => Promise<void>;
   t: (key: string, langOrFallback?: Language | string, fallback?: string) => string;
+  // Notification system
+  notifications: AppNotification[];
+  unreadNotificationsCount: number;
+  isNotificationsModalOpen: boolean;
+  setIsNotificationsModalOpen: (open: boolean) => void;
+  fetchNotifications: () => Promise<void>;
+  markNotificationAsRead: (notificationId: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
+  clearAllNotifications: () => Promise<void>;
+  requestCircleTransfer: (targetCircleId: string, targetCircleName: string) => Promise<{ success: boolean; message: string }>;
+  respondToCircleTransfer: (notificationId: string, action: 'accept' | 'reject') => Promise<{ success: boolean; message: string }>;
 }
 
 const DEFAULT_USER_PROFILE: UserProfile = {
@@ -180,6 +192,10 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [circleStudents, setCircleStudents] = useState<UserProfile[]>([]);
   const [teacherCircles, setTeacherCircles] = useState<Circle[]>([]);
   const [teacherSubmissions, setTeacherSubmissions] = useState<NodeSubmission[]>([]);
+
+  // Notifications State
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
 
   // Language State
   const [language, setLanguageState] = useState<Language>(() => {
@@ -819,6 +835,179 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setUser(prev => ({ ...prev, ...updates }));
   }, []);
 
+  // ============================================================================
+  // Notifications Logic & Realtime Listeners
+  // ============================================================================
+  const unreadNotificationsCount = useMemo(() => {
+    return notifications.filter(n => !n.isRead).length;
+  }, [notifications]);
+
+  const fetchNotifications = useCallback(async () => {
+    const effectiveUserId = user?.id || session?.user?.id;
+    if (!effectiveUserId) return;
+    try {
+      const { fetchUserNotificationsFromDB } = await import('../services/supabaseService');
+      const data = await fetchUserNotificationsFromDB(effectiveUserId);
+      setNotifications(data);
+    } catch (err) {
+      console.warn('⚠️ [SupabaseContext.fetchNotifications] Error:', err);
+    }
+  }, [user?.id, session?.user?.id]);
+
+  // Realtime subscription and 30s polling for notifications
+  useEffect(() => {
+    const effectiveUserId = user?.id || session?.user?.id;
+    if (!effectiveUserId) {
+      setNotifications([]);
+      return;
+    }
+
+    fetchNotifications();
+
+    const channel = supabase
+      .channel(`notifications-realtime-${effectiveUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${effectiveUserId}`,
+        },
+        () => {
+          fetchNotifications();
+        }
+      )
+      .subscribe();
+
+    const intervalId = setInterval(() => {
+      fetchNotifications();
+    }, 30000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(intervalId);
+    };
+  }, [user?.id, session?.user?.id, fetchNotifications]);
+
+  const markNotificationAsRead = useCallback(async (notificationId: string) => {
+    setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, isRead: true } : n));
+    try {
+      const { markNotificationAsReadInDB } = await import('../services/supabaseService');
+      await markNotificationAsReadInDB(notificationId);
+    } catch (err) {
+      console.warn('⚠️ [markNotificationAsRead] Error:', err);
+    }
+  }, []);
+
+  const markAllNotificationsAsRead = useCallback(async () => {
+    const effectiveUserId = user?.id || session?.user?.id;
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    if (effectiveUserId) {
+      try {
+        const { markAllNotificationsAsReadInDB } = await import('../services/supabaseService');
+        await markAllNotificationsAsReadInDB(effectiveUserId);
+      } catch (err) {
+        console.warn('⚠️ [markAllNotificationsAsRead] Error:', err);
+      }
+    }
+  }, [user?.id, session?.user?.id]);
+
+  const clearAllNotifications = useCallback(async () => {
+    const effectiveUserId = user?.id || session?.user?.id;
+    setNotifications([]);
+    if (effectiveUserId) {
+      try {
+        const { deleteAllUserNotificationsInDB } = await import('../services/supabaseService');
+        await deleteAllUserNotificationsInDB(effectiveUserId);
+      } catch (err) {
+        console.warn('⚠️ [clearAllNotifications] Error:', err);
+      }
+    }
+  }, [user?.id, session?.user?.id]);
+
+  const requestCircleTransfer = useCallback(async (targetCircleId: string, targetCircleName: string) => {
+    try {
+      const { requestCircleTransferInDB } = await import('../services/supabaseService');
+      const res = await requestCircleTransferInDB({
+        studentId: user.id,
+        studentName: user.displayName || user.name || 'طالب قرآن',
+        currentCircleId: user.circleId || userCircle?.id || '',
+        currentCircleName: user.circleName || userCircle?.name || 'الحلقة الحالية',
+        targetCircleId,
+        targetCircleName,
+        teacherId: user.teacherId || userCircle?.teacherId,
+      });
+      return res;
+    } catch (err: any) {
+      console.error('❌ [requestCircleTransfer] Error:', err);
+      return { success: false, message: err.message || 'فشل إرسال طلب النقل' };
+    }
+  }, [user, userCircle]);
+
+  const respondToCircleTransfer = useCallback(async (notificationId: string, action: 'accept' | 'reject') => {
+    const targetNotif = notifications.find(n => n.id === notificationId);
+    if (!targetNotif || !targetNotif.data) {
+      return { success: false, message: 'بيانات الإشعار غير متوفرة' };
+    }
+
+    const {
+      studentId,
+      studentName,
+      currentCircleId,
+      currentCircleName,
+      targetCircleId,
+      targetCircleName,
+    } = targetNotif.data;
+
+    // تحديث تفاؤلي لحالة الإشعار
+    setNotifications(prev => prev.map(n => {
+      if (n.id === notificationId) {
+        return {
+          ...n,
+          isRead: true,
+          data: {
+            ...n.data,
+            status: action === 'accept' ? 'accepted' : 'rejected',
+          },
+        };
+      }
+      return n;
+    }));
+
+    try {
+      const { respondToCircleTransferInDB } = await import('../services/supabaseService');
+      const res = await respondToCircleTransferInDB({
+        notificationId,
+        action,
+        teacherName: user.displayName || user.name || 'معلمك',
+        studentId,
+        studentName,
+        currentCircleId,
+        currentCircleName,
+        targetCircleId,
+        targetCircleName,
+      });
+
+      if (res.success && action === 'accept') {
+        // تحديث حلقات المعلم وقائمة طلابه مباشرة
+        try {
+          const { getTeacherDashboardData } = await import('../services/supabaseService');
+          const dash = await getTeacherDashboardData(user.id);
+          if (dash && dash.circles) {
+            setTeacherCircles(dash.circles || []);
+            setCircleStudents(dash.students || []);
+          }
+        } catch (e) {}
+      }
+
+      return res;
+    } catch (err: any) {
+      console.error('❌ [respondToCircleTransfer] Error:', err);
+      return { success: false, message: err.message || 'حدث خطأ أثناء معالجة الطلب' };
+    }
+  }, [notifications, user]);
+
   const openWeekModal = useCallback((week: Week) => {
     setSelectedWeekForModal(week);
     setShowWeekModal(true);
@@ -1106,6 +1295,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         rating,
         xpReward,
         weekId,
+        teacherName: user.displayName || user.name || 'المعلم',
       });
 
       if (!result.success) {
@@ -1429,7 +1619,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       // 4. Call server API
       const { markHalaqahAbsentInDB } = await import('../services/supabaseService');
-      const res = await markHalaqahAbsentInDB(studentId, nodeId, submissionId);
+      const res = await markHalaqahAbsentInDB(studentId, nodeId, submissionId, user.displayName || user.name || 'المعلم');
       return res;
     } catch (err: any) {
       console.error('❌ [SupabaseContext.markStudentAbsent] Error:', err);
@@ -1745,6 +1935,17 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setLanguage,
         setTrack,
         t,
+        // Notifications
+        notifications,
+        unreadNotificationsCount,
+        isNotificationsModalOpen,
+        setIsNotificationsModalOpen,
+        fetchNotifications,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearAllNotifications,
+        requestCircleTransfer,
+        respondToCircleTransfer,
       }}
     >
       {children}

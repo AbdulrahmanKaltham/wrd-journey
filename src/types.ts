@@ -188,3 +188,38 @@ export interface UserProfile {
 
 // User alias for types compatibility
 export type User = UserProfile;
+
+export type NotificationType =
+  | 'circle_transfer_request'
+  | 'circle_transfer_accepted'
+  | 'circle_transfer_rejected'
+  | 'recitation_approved'
+  | 'recitation_practice'
+  | 'recitation_absent';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data?: {
+    studentId?: string;
+    studentName?: string;
+    currentCircleId?: string;
+    currentCircleName?: string;
+    targetCircleId?: string;
+    targetCircleName?: string;
+    recordingId?: string;
+    nodeId?: string;
+    nodeTitle?: string;
+    rating?: string;
+    teacherNotes?: string;
+    teacherName?: string;
+    xpReward?: number;
+    status?: 'pending' | 'accepted' | 'rejected';
+    [key: string]: any;
+  };
+  isRead: boolean;
+  createdAt: string;
+}

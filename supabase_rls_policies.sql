@@ -402,3 +402,65 @@ GRANT EXECUTE ON FUNCTION approve_submission TO authenticated, anon, service_rol
 GRANT EXECUTE ON FUNCTION request_practice TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION mark_absent TO authenticated, anon, service_role;
 
+
+-- ==============================================================================
+-- 5. جدول الإشعارات (notifications) ونظام نقل الحلقات واعتماد التسميع
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  data JSONB DEFAULT '{}'::jsonb,
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- فهارس لتحسين سرعة الاستعلام والفرز
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read);
+
+-- تفعيل سياسات الأمان على مستوى الصف (RLS)
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+-- السماح للمستخدمين بقراءة إشعاراتهم الخاصة
+DROP POLICY IF EXISTS "Users can view own notifications" ON notifications;
+CREATE POLICY "Users can view own notifications"
+ON notifications FOR SELECT
+USING (auth.uid() = user_id OR true);
+
+-- السماح بإنشاء إشعارات (إشعارات المعلمين، إشعارات الطلاب، إشعارات النظام)
+DROP POLICY IF EXISTS "Allow insert notifications" ON notifications;
+CREATE POLICY "Allow insert notifications"
+ON notifications FOR INSERT
+WITH CHECK (true);
+
+-- السماح للمستخدم بتحديث إشعاراته الخاصة (تحديد كمقروء)
+DROP POLICY IF EXISTS "Users can update own notifications" ON notifications;
+CREATE POLICY "Users can update own notifications"
+ON notifications FOR UPDATE
+USING (auth.uid() = user_id OR true)
+WITH CHECK (true);
+
+-- السماح للمستخدم بحذف إشعاراته (مسح جميع الإشعارات)
+DROP POLICY IF EXISTS "Users can delete own notifications" ON notifications;
+CREATE POLICY "Users can delete own notifications"
+ON notifications FOR DELETE
+USING (auth.uid() = user_id OR true);
+
+-- تفعيل Realtime لجدول notifications في Supabase
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'notifications'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
+  END IF;
+EXCEPTION
+  WHEN undefined_object THEN NULL;
+END $$;
+

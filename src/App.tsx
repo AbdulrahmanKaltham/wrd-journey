@@ -18,6 +18,7 @@ import { WeekDetailModal } from './components/Journey/WeekDetailModal';
 import { LessonPlayer } from './components/Lesson/LessonPlayer';
 import { ListeningTask } from './components/listening/ListeningTask';
 import { WeekRewardModal } from './components/Reward/WeekRewardModal';
+import { NotificationModal } from './components/Notifications/NotificationModal';
 
 const AppRouter: React.FC = () => {
   const {
@@ -139,6 +140,8 @@ const AppRouter: React.FC = () => {
         {teacherMustChangePw && (
           <TeacherChangePasswordModal onSuccess={() => setTeacherMustChangePw(false)} />
         )}
+
+        <NotificationModal />
       </div>
     );
   }
@@ -177,6 +180,7 @@ const AppRouter: React.FC = () => {
       )}
 
       <WeekRewardModal />
+      <NotificationModal />
     </div>
   );
 };

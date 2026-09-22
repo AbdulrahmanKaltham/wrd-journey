@@ -1,10 +1,17 @@
 import React from 'react';
 import { useSupabase } from '../../context/SupabaseContext';
 import { AvatarDisplay } from '../Avatar/AvatarDisplay';
-import { Flame, Star, GraduationCap } from 'lucide-react';
+import { Flame, Star, GraduationCap, Bell } from 'lucide-react';
 
 export const Header: React.FC = () => {
-  const { user, weeks, setActiveTab, language } = useSupabase();
+  const {
+    user,
+    weeks,
+    setActiveTab,
+    language,
+    unreadNotificationsCount,
+    setIsNotificationsModalOpen,
+  } = useSupabase();
   const currentWeek = weeks.find(w => w.id === user.currentWeek) || weeks[0];
 
   const isTeacher = user.role === 'teacher';
@@ -18,7 +25,7 @@ export const Header: React.FC = () => {
       <div className="max-w-md mx-auto flex items-center justify-between">
         {/* User / Club Info */}
         <div className="flex items-center gap-2.5">
-            <button
+          <button
             onClick={() => setActiveTab('profile')}
             className="hover:scale-105 active:scale-95 transition-transform cursor-pointer"
             title={language === 'en' ? 'Edit Profile & Settings' : 'تعديل الشخصية والحساب'}
@@ -50,8 +57,24 @@ export const Header: React.FC = () => {
           </div>
         </div>
 
-        {/* Stats Pill Counters */}
+        {/* Stats Pill Counters & Notification Bell */}
         <div className="flex items-center gap-2">
+          {/* Notification Bell */}
+          <button
+            id="notifications-bell-btn"
+            onClick={() => setIsNotificationsModalOpen(true)}
+            className="relative p-1.5 rounded-full hover:bg-slate-100 text-slate-600 hover:text-emerald-700 transition-colors cursor-pointer"
+            title={language === 'en' ? 'Notifications' : 'الإشعارات'}
+            aria-label="الإشعارات"
+          >
+            <Bell className="w-4 h-4" />
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 font-num shadow-xs animate-pulse">
+                {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+              </span>
+            )}
+          </button>
+
           {/* Streak Counter for Students */}
           {!isTeacher && (
             <div className="flex items-center gap-1 bg-[#FFF8E7] px-3 py-1 rounded-full border border-[#F9BF3B] shadow-2xs">
