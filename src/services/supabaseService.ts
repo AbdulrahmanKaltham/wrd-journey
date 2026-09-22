@@ -2890,40 +2890,82 @@ export const createNotificationInDB = async (params: {
   }
 
   try {
-    const payload = {
-      user_id: userId,
-      type,
-      title,
-      message,
-      data,
-      is_read: false,
-    };
+    console.log('📤 [createNotificationInDB] Calling RPC insert_notification:', {
+      p_user_id: userId,
+      p_type: type,
+      p_title: title,
+      p_message: message,
+      p_data: data,
+    });
 
-    console.log('📤 [createNotificationInDB] Inserting into notifications:', payload);
-
-    const { data: inserted, error } = await supabase
-      .from('notifications')
-      .insert(payload)
-      .select()
-      .maybeSingle();
+    const { data: rpcData, error } = await supabase.rpc('insert_notification', {
+      p_user_id: userId,
+      p_type: type,
+      p_title: title,
+      p_message: message,
+      p_data: data,
+    });
 
     if (error) {
-      console.error('❌ [createNotificationInDB] Supabase notifications insert error:', error.message, error);
+      console.error('❌ [createNotificationInDB] RPC insert error:', error);
+
+      // إذا لم تكن الدالة منشأة في Supabase بعد، نجرب الإدراج المباشر كاحتياط
+      if (error.message?.includes('function') || error.code === 'PGRST202') {
+        console.warn('⚠️ [createNotificationInDB] RPC insert_notification not found, falling back to direct table insert...');
+        const payload = {
+          user_id: userId,
+          type,
+          title,
+          message,
+          data,
+          is_read: false,
+        };
+        const { data: inserted, error: insertError } = await supabase
+          .from('notifications')
+          .insert(payload)
+          .select()
+          .maybeSingle();
+
+        if (insertError) {
+          console.error('❌ [createNotificationInDB] Fallback insert error:', insertError);
+          return { success: false, error: insertError.message };
+        }
+
+        const notif: AppNotification = {
+          id: inserted.id,
+          userId: inserted.user_id,
+          type: inserted.type,
+          title: inserted.title,
+          message: inserted.message,
+          data: inserted.data || {},
+          isRead: !!inserted.is_read,
+          createdAt: inserted.created_at,
+        };
+        return { success: true, notification: notif };
+      }
+
       return { success: false, error: error.message };
     }
 
+    console.log('✅ [createNotificationInDB] Notification created successfully via RPC:', rpcData);
+
+    const returnedRow = (rpcData && typeof rpcData === 'object' && 'id' in rpcData)
+      ? rpcData
+      : (Array.isArray(rpcData) && rpcData[0])
+      ? rpcData[0]
+      : null;
+
     const notif: AppNotification = {
-      id: inserted.id,
-      userId: inserted.user_id,
-      type: inserted.type,
-      title: inserted.title,
-      message: inserted.message,
-      data: inserted.data || {},
-      isRead: !!inserted.is_read,
-      createdAt: inserted.created_at,
+      id: returnedRow?.id || (typeof rpcData === 'string' ? rpcData : `notif_${Date.now()}`),
+      userId: returnedRow?.user_id || userId,
+      type: (returnedRow?.type || type) as NotificationType,
+      title: returnedRow?.title || title,
+      message: returnedRow?.message || message,
+      data: returnedRow?.data || data || {},
+      isRead: false,
+      createdAt: returnedRow?.created_at || new Date().toISOString(),
     };
 
-    console.log('✅ [createNotificationInDB] Notification created successfully:', notif.id);
     return { success: true, notification: notif };
   } catch (err: any) {
     console.error('❌ [createNotificationInDB] Exception:', err);
@@ -3086,41 +3128,69 @@ export const requestCircleTransferInDB = async (params: {
   const message = `الطالب (${cleanStudentName}) يطلب الانتقال من (${cleanCurrentCircle}) إلى (${targetCircleName})`;
 
   const notifData = {
-    studentId,
+    studentId: studentId,
     studentName: cleanStudentName,
     currentCircleId: currentCircleId || null,
     currentCircleName: cleanCurrentCircle,
-    targetCircleId,
-    targetCircleName,
+    targetCircleId: targetCircleId,
+    targetCircleName: targetCircleName,
     status: 'pending',
   };
 
-  const insertPayload = {
-    user_id: newTeacherId,
-    type: 'circle_transfer_request',
-    title,
-    message,
-    data: notifData,
-    is_read: false,
-  };
+  console.log('📤 [requestCircleTransferInDB] Calling RPC insert_notification for transfer request:', {
+    p_user_id: newTeacherId,
+    p_type: 'circle_transfer_request',
+    p_title: 'طلب نقل طالب جديد',
+    p_message: message,
+    p_data: notifData,
+  });
 
-  console.log('📤 [requestCircleTransferInDB] Inserting transfer notification for new teacher:', insertPayload);
-
-  const { data: inserted, error } = await supabase
-    .from('notifications')
-    .insert(insertPayload)
-    .select()
-    .maybeSingle();
+  const { data: rpcData, error } = await supabase.rpc('insert_notification', {
+    p_user_id: newTeacherId,
+    p_type: 'circle_transfer_request',
+    p_title: 'طلب نقل طالب جديد',
+    p_message: `الطالب ${cleanStudentName} يطلب الانتقال من ${cleanCurrentCircle} إلى ${targetCircleName}`,
+    p_data: notifData,
+  });
 
   if (error) {
-    console.error('❌ [requestCircleTransferInDB] Supabase notifications insert error:', error);
+    console.error('RPC insert error:', error);
+    // إذا لم تكن الدالة متوفرة بعد، نحاول الإدراج المباشر كاحتياط
+    if (error.message?.includes('function') || error.code === 'PGRST202') {
+      console.warn('⚠️ [requestCircleTransferInDB] RPC function not found, falling back to direct table insert...');
+      const insertPayload = {
+        user_id: newTeacherId,
+        type: 'circle_transfer_request',
+        title: 'طلب نقل طالب جديد',
+        message: `الطالب ${cleanStudentName} يطلب الانتقال من ${cleanCurrentCircle} إلى ${targetCircleName}`,
+        data: notifData,
+        is_read: false,
+      };
+
+      const { error: insertError } = await supabase
+        .from('notifications')
+        .insert(insertPayload);
+
+      if (insertError) {
+        console.error('❌ [requestCircleTransferInDB] Direct insert error:', insertError);
+        return {
+          success: false,
+          message: `فشل تسجيل الطلب في قاعدة البيانات: ${insertError.message}`,
+        };
+      }
+      return {
+        success: true,
+        message: 'تم إرسال طلبك إلى معلم الحلقة الجديدة للموافقة.',
+      };
+    }
+
     return {
       success: false,
-      message: `فشل تسجيل الطلب في قاعدة البيانات: ${error.message}`,
+      message: `فشل تسجيل الطلب: ${error.message || 'حدث خطأ في استدعاء دالة الإشعار'}`,
     };
   }
 
-  console.log('✅ [requestCircleTransferInDB] Notification row created successfully:', inserted);
+  console.log('✅ [requestCircleTransferInDB] Notification row created via RPC successfully:', rpcData);
   return {
     success: true,
     message: 'تم إرسال طلبك إلى معلم الحلقة الجديدة للموافقة.',

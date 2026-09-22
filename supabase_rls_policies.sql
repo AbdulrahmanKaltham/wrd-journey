@@ -464,3 +464,64 @@ EXCEPTION
   WHEN undefined_object THEN NULL;
 END $$;
 
+
+-- ==============================================================================
+-- 6. دالة PostgreSQL SECURITY DEFINER لإدراج الإشعارات (insert_notification)
+-- ==============================================================================
+-- تتجاوز هذه الدالة قيود RLS و Foreign Key (user_id -> profiles.id) حتى يتمكن الطالب
+-- من إرسال إشعارات لمعلم الحلقة الجديدة دون التعثر بقيود RLS لجدول profiles.
+CREATE OR REPLACE FUNCTION insert_notification(
+  p_user_id uuid,
+  p_type text,
+  p_title text,
+  p_message text,
+  p_data jsonb DEFAULT '{}'::jsonb
+)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_inserted notifications;
+BEGIN
+  INSERT INTO notifications (
+    user_id,
+    type,
+    title,
+    message,
+    data,
+    is_read,
+    created_at
+  ) VALUES (
+    p_user_id,
+    p_type,
+    p_title,
+    p_message,
+    COALESCE(p_data, '{}'::jsonb),
+    false,
+    NOW()
+  )
+  RETURNING * INTO v_inserted;
+
+  RETURN json_build_object(
+    'success', true,
+    'id', v_inserted.id,
+    'user_id', v_inserted.user_id,
+    'type', v_inserted.type,
+    'title', v_inserted.title,
+    'message', v_inserted.message,
+    'data', v_inserted.data,
+    'is_read', v_inserted.is_read,
+    'created_at', v_inserted.created_at
+  );
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE EXCEPTION 'Failed to insert notification: %', SQLERRM;
+END;
+$$;
+
+-- منح صلاحيات التنفيذ لجميع الأدوار المستخدمة في التطبيق
+GRANT EXECUTE ON FUNCTION insert_notification TO authenticated, anon, service_role;
+
+
