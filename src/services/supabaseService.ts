@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabaseClient';
 import { Circle, NodeSubmission } from '../types';
 import { getAllTracksWeeks } from '../data/quranJourneyData';
 
-const resolveSubmissionMeta = (nodeId?: string, weekId?: number) => {
+export const resolveSubmissionMeta = (nodeId?: string, weekId?: number) => {
   const allWeeks = getAllTracksWeeks();
   let matchedWeek = allWeeks.find(w => w.nodes.some(n => n.id === nodeId));
   let matchedNode = matchedWeek?.nodes.find(n => n.id === nodeId);
@@ -2133,6 +2133,366 @@ export const promoteUserToAdminInAPI = async (
       success: false,
       error: 'على الاستضافة الثابتة (GitHub Pages)، تتم ترقية الحساب بتعديل حقل role إلى "admin" مباشرةً من جدول profiles في لوحة تحكم Supabase.',
     };
+  }
+};
+
+/**
+ * تفاصيل التسميع لمراجعة أداء المعلم في النافذة المنبثقة
+ */
+export interface ReviewSubmissionDetail {
+  id: string;
+  studentId: string;
+  studentName: string;
+  circleId?: string;
+  nodeId: string;
+  nodeTitle: string;
+  weekId: number;
+  weekTitle: string;
+  surahName: string;
+  type: 'recording' | 'halaqah';
+  status: 'pending' | 'approved' | 'reviewed';
+  audioUrl?: string;
+  teacherNotes?: string;
+  rating?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  isLate: boolean;
+  elapsedArabic: string;
+  elapsedHours: number;
+}
+
+/**
+ * أداء المعلم الفردي في مراجعة التسميعات الصوتية وتسميع الحلقة
+ */
+export interface TeacherReviewPerformanceItem {
+  teacherId: string;
+  teacherName: string;
+  teacherEmail: string;
+  gender: 'male' | 'female';
+  circleId?: string | null;
+  circleName: string;
+  studentsCount: number;
+
+  // تسجيلات صوتية ذاتية
+  recordingsTotal: number;
+  recordingsApproved: number;
+  recordingsPending: number;
+  recordingsLate: number;
+
+  // تسميع مباشر في الحلقة
+  halaqahTotal: number;
+  halaqahApproved: number;
+  halaqahPending: number;
+  halaqahLate: number;
+
+  // الإجماليات والمعدل
+  totalSubmissions: number;
+  totalApproved: number;
+  totalPending: number;
+  totalLate: number;
+  reviewRate: number; // نسبة مئوية
+  isLate: boolean; // متأخر إذا تجاوز أي تسميع معلق 48 ساعة
+
+  // القوائم التفصيلية للنافذة المنبثقة
+  pendingRecordings: ReviewSubmissionDetail[];
+  pendingHalaqah: ReviewSubmissionDetail[];
+  recentApproved: ReviewSubmissionDetail[];
+}
+
+/**
+ * الإحصائيات العلوية العامة لأداء المراجعة
+ */
+export interface ReviewPerformanceStats {
+  totalApprovedRecordings: number;
+  totalApprovedHalaqah: number;
+  delayedRecordingsCount: number;
+  delayedHalaqahCount: number;
+  delayedTeachersCount: number;
+  totalPendingRecordings: number;
+  totalPendingHalaqah: number;
+  totalTeachersCount: number;
+}
+
+/**
+ * تنسيق الوقت المنقضي باللغة العربية
+ */
+export const formatElapsedArabic = (dateString?: string): string => {
+  if (!dateString) return 'غير محدد';
+  const diffMs = Date.now() - new Date(dateString).getTime();
+  if (diffMs <= 0) return 'الآن';
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMinutes < 60) {
+    return diffMinutes <= 1 ? 'منذ دقيقة' : `منذ ${diffMinutes} دقيقة`;
+  } else if (diffHours < 24) {
+    if (diffHours === 1) return 'منذ ساعة واحدة';
+    if (diffHours === 2) return 'منذ ساعتين';
+    if (diffHours <= 10) return `منذ ${diffHours} ساعات`;
+    return `منذ ${diffHours} ساعة`;
+  } else {
+    let daysStr = '';
+    if (diffDays === 1) daysStr = 'منذ يوم';
+    else if (diffDays === 2) daysStr = 'منذ يومين';
+    else if (diffDays <= 10) daysStr = `منذ ${diffDays} أيام`;
+    else daysStr = `منذ ${diffDays} يوماً`;
+
+    return `${daysStr} (${diffHours} ساعة)`;
+  }
+};
+
+/**
+ * جلب بيانات أداء المعلمين في مراجعة التسميعات (الصوتية وحلقة التحفيظ) مباشرةً من Supabase
+ */
+export const fetchTeacherReviewPerformanceFromSupabase = async (): Promise<{
+  success: boolean;
+  performanceItems?: TeacherReviewPerformanceItem[];
+  stats?: ReviewPerformanceStats;
+  error?: string;
+}> => {
+  try {
+    console.log('📊 [supabaseService] Fetching teacher review performance from Supabase...');
+    const [profilesRes, circlesRes, recordingsRes] = await Promise.all([
+      supabase.from('profiles').select('*'),
+      supabase.from('circles').select('*'),
+      supabase.from('recordings').select('*').order('created_at', { ascending: false }),
+    ]);
+
+    const allProfiles: any[] = Array.isArray(profilesRes.data) ? profilesRes.data : [];
+    const allCircles: any[] = Array.isArray(circlesRes.data) ? circlesRes.data : [];
+    const allRecordings: any[] = Array.isArray(recordingsRes.data) ? recordingsRes.data : [];
+
+    // خريطة الطلاب للوصول السريع
+    const studentMap = new Map<string, any>();
+    allProfiles.forEach(p => {
+      if (p.role === 'student' || !p.role) {
+        studentMap.set(p.id, p);
+      }
+    });
+
+    // قائمة المعلمين
+    const teacherProfiles = allProfiles.filter(p => p.role === 'teacher' || p.role === 'deactivated_teacher');
+
+    // استثناء التسجيلات المحذوفة أو الملغاة
+    const validRecordings = allRecordings.filter(r => r.status !== 'deleted' && r.status !== 'cancelled_reset');
+
+    const now = Date.now();
+    const LATE_THRESHOLD_MS = 48 * 60 * 60 * 1000;
+
+    let overallApprovedRecordings = 0;
+    let overallApprovedHalaqah = 0;
+    let overallDelayedRecordings = 0;
+    let overallDelayedHalaqah = 0;
+    let overallPendingRecordings = 0;
+    let overallPendingHalaqah = 0;
+
+    const performanceItems: TeacherReviewPerformanceItem[] = teacherProfiles.map(t => {
+      // حلقات المعلم
+      const teacherCircles = allCircles.filter(c => c.teacher_id === t.id || c.id === t.circle_id);
+      const circleIds = new Set(teacherCircles.map(c => c.id));
+      if (t.circle_id) circleIds.add(t.circle_id);
+
+      // اسم الحلقة الأساسية
+      const primaryCircle = teacherCircles[0];
+      const circleName = primaryCircle?.name || 'بدون حلقة';
+
+      // طلاب المعلم
+      const teacherStudents = Array.from(studentMap.values()).filter(s =>
+        (s.circle_id && circleIds.has(s.circle_id)) ||
+        s.teacher_id === t.id ||
+        teacherCircles.some(c => Array.isArray(c.student_ids) && c.student_ids.includes(s.id))
+      );
+      const studentIdSet = new Set(teacherStudents.map(s => s.id));
+
+      // تسجيلات طلاب المعلم
+      const teacherRecs = validRecordings.filter(r => {
+        if (r.circle_id && circleIds.has(r.circle_id)) return true;
+        if (r.student_id && studentIdSet.has(r.student_id)) return true;
+        return false;
+      });
+
+      const pendingRecordings: ReviewSubmissionDetail[] = [];
+      const pendingHalaqah: ReviewSubmissionDetail[] = [];
+      const recentApproved: ReviewSubmissionDetail[] = [];
+
+      let recTotal = 0;
+      let recApproved = 0;
+      let recPending = 0;
+      let recLate = 0;
+
+      let halTotal = 0;
+      let halApproved = 0;
+      let halPending = 0;
+      let halLate = 0;
+
+      teacherRecs.forEach(r => {
+        const isRec = r.type === 'recording' || (r.type !== 'halaqah' && Boolean(r.audio_url));
+        const subType: 'recording' | 'halaqah' = isRec ? 'recording' : 'halaqah';
+        const isApproved = r.status === 'approved' || r.status === 'reviewed';
+        const isPending = !isApproved;
+
+        const createdMs = r.created_at ? new Date(r.created_at).getTime() : now;
+        const diffMs = Math.max(0, now - createdMs);
+        const elapsedHours = Math.floor(diffMs / (1000 * 60 * 60));
+        const isLate = isPending && diffMs > LATE_THRESHOLD_MS;
+
+        const meta = resolveSubmissionMeta(r.node_id, r.week_id);
+        const studentProfile = studentMap.get(r.student_id);
+        const studentName = studentProfile?.display_name || studentProfile?.name || 'طالب';
+
+        const detail: ReviewSubmissionDetail = {
+          id: r.id,
+          studentId: r.student_id,
+          studentName,
+          circleId: r.circle_id,
+          nodeId: r.node_id,
+          nodeTitle: r.node_title || meta.nodeTitle,
+          weekId: meta.weekId,
+          weekTitle: meta.weekTitle,
+          surahName: meta.surahName || meta.weekTitle,
+          type: subType,
+          status: isApproved ? (r.status === 'reviewed' ? 'reviewed' : 'approved') : 'pending',
+          audioUrl: r.audio_url,
+          teacherNotes: r.teacher_notes || '',
+          rating: r.rating || '',
+          submittedAt: r.created_at || new Date().toISOString(),
+          reviewedAt: r.updated_at,
+          isLate,
+          elapsedArabic: formatElapsedArabic(r.created_at),
+          elapsedHours,
+        };
+
+        if (subType === 'recording') {
+          recTotal++;
+          if (isApproved) {
+            recApproved++;
+            overallApprovedRecordings++;
+          } else {
+            recPending++;
+            overallPendingRecordings++;
+            if (isLate) {
+              recLate++;
+              overallDelayedRecordings++;
+            }
+            pendingRecordings.push(detail);
+          }
+        } else {
+          halTotal++;
+          if (isApproved) {
+            halApproved++;
+            overallApprovedHalaqah++;
+          } else {
+            halPending++;
+            overallPendingHalaqah++;
+            if (isLate) {
+              halLate++;
+              overallDelayedHalaqah++;
+            }
+            pendingHalaqah.push(detail);
+          }
+        }
+
+        if (isApproved) {
+          recentApproved.push(detail);
+        }
+      });
+
+      // ترتيب المعلقة: المتأخر أولاً، ثم الأقدم
+      pendingRecordings.sort((a, b) => b.elapsedHours - a.elapsedHours);
+      pendingHalaqah.sort((a, b) => b.elapsedHours - a.elapsedHours);
+      // ترتيب المعتمدة حديثاً: الأحدث أولاً
+      recentApproved.sort(
+        (a, b) =>
+          new Date(b.reviewedAt || b.submittedAt).getTime() -
+          new Date(a.reviewedAt || a.submittedAt).getTime()
+      );
+
+      const totalSubmissions = recTotal + halTotal;
+      const totalApproved = recApproved + halApproved;
+      const totalPending = recPending + halPending;
+      const totalLate = recLate + halLate;
+      const reviewRate =
+        totalSubmissions > 0 ? Math.round((totalApproved / totalSubmissions) * 100) : 100;
+      const isLateTeacher = totalLate > 0;
+
+      return {
+        teacherId: t.id,
+        teacherName: t.name || 'معلم قرآن',
+        teacherEmail: t.email || '',
+        gender: t.gender || 'male',
+        circleId: primaryCircle?.id || t.circle_id || null,
+        circleName,
+        studentsCount: teacherStudents.length,
+
+        recordingsTotal: recTotal,
+        recordingsApproved: recApproved,
+        recordingsPending: recPending,
+        recordingsLate: recLate,
+
+        halaqahTotal: halTotal,
+        halaqahApproved: halApproved,
+        halaqahPending: halPending,
+        halaqahLate: halLate,
+
+        totalSubmissions,
+        totalApproved,
+        totalPending,
+        totalLate,
+        reviewRate,
+        isLate: isLateTeacher,
+
+        pendingRecordings,
+        pendingHalaqah,
+        recentApproved: recentApproved.slice(0, 15),
+      };
+    });
+
+    const delayedTeachersCount = performanceItems.filter(item => item.isLate).length;
+
+    const stats: ReviewPerformanceStats = {
+      totalApprovedRecordings: overallApprovedRecordings,
+      totalApprovedHalaqah: overallApprovedHalaqah,
+      delayedRecordingsCount: overallDelayedRecordings,
+      delayedHalaqahCount: overallDelayedHalaqah,
+      delayedTeachersCount,
+      totalPendingRecordings: overallPendingRecordings,
+      totalPendingHalaqah: overallPendingHalaqah,
+      totalTeachersCount: teacherProfiles.length,
+    };
+
+    return {
+      success: true,
+      performanceItems,
+      stats,
+    };
+  } catch (err: any) {
+    console.error('❌ [fetchTeacherReviewPerformanceFromSupabase] Error:', err);
+    return {
+      success: false,
+      error: err.message || 'تعذر جلب بيانات أداء المعلمين من Supabase',
+    };
+  }
+};
+
+/**
+ * جلب بيانات بروفايلات الطلاب بمعرفاتهم
+ */
+export const getStudentProfilesByIds = async (ids: string[]): Promise<any[]> => {
+  if (!ids || ids.length === 0) return [];
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('id', ids);
+    if (error) {
+      console.warn('⚠️ [getStudentProfilesByIds] Error fetching profiles:', error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.warn('⚠️ [getStudentProfilesByIds] Caught error:', err);
+    return [];
   }
 };
 

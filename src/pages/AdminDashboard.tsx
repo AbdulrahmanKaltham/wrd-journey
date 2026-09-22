@@ -3,12 +3,17 @@ import { useSupabase } from '../context/SupabaseContext';
 import {
   fetchAdminStatsFromSupabase,
   fetchAdminTeachersFromSupabase,
+  fetchTeacherReviewPerformanceFromSupabase,
   createTeacherByAdmin,
   regenerateTeacherTempPassword,
   deleteOrDeactivateTeacher,
   AdminStatsData,
   AdminChartsData,
   AdminTeacherItem,
+  TeacherReviewPerformanceItem,
+  ReviewSubmissionDetail,
+  ReviewPerformanceStats,
+  formatElapsedArabic,
 } from '../services/supabaseService';
 import {
   Shield,
@@ -39,6 +44,11 @@ import {
   UserCheck,
   FolderLock,
   Database,
+  ClipboardCheck,
+  Eye,
+  X,
+  Volume2,
+  ChevronLeft,
 } from 'lucide-react';
 import {
   LineChart,
@@ -59,7 +69,7 @@ export const AdminDashboard: React.FC = () => {
   const { user, profile, signOut, activeTab, setActiveTab } = useSupabase();
 
   // Selected subtab within admin
-  const [currentSection, setCurrentSection] = useState<'analytics' | 'teachers' | 'add_teacher'>('analytics');
+  const [currentSection, setCurrentSection] = useState<'analytics' | 'teacher_performance' | 'teachers' | 'add_teacher'>('analytics');
 
   // Stats and Charts State
   const [stats, setStats] = useState<AdminStatsData | null>(null);
@@ -71,6 +81,15 @@ export const AdminDashboard: React.FC = () => {
   const [loadingTeachers, setLoadingTeachers] = useState(true);
   const [teacherSearch, setTeacherSearch] = useState('');
   const [selectedGenderFilter, setSelectedGenderFilter] = useState<'all' | 'male' | 'female'>('all');
+
+  // Teacher Review Performance State
+  const [performanceItems, setPerformanceItems] = useState<TeacherReviewPerformanceItem[]>([]);
+  const [performanceStats, setPerformanceStats] = useState<ReviewPerformanceStats | null>(null);
+  const [loadingPerformance, setLoadingPerformance] = useState(true);
+  const [selectedTeacherModal, setSelectedTeacherModal] = useState<TeacherReviewPerformanceItem | null>(null);
+  const [modalActiveTab, setModalActiveTab] = useState<'recordings' | 'halaqah' | 'approved'>('recordings');
+  const [performanceSearch, setPerformanceSearch] = useState('');
+  const [performanceStatusFilter, setPerformanceStatusFilter] = useState<'all' | 'late' | 'regular'>('all');
 
   // Add Teacher Form State
   const [newTeacherName, setNewTeacherName] = useState('');
@@ -93,6 +112,7 @@ export const AdminDashboard: React.FC = () => {
   // Synchronize with activeTab from context if requested
   useEffect(() => {
     if (activeTab === 'admin_analytics') setCurrentSection('analytics');
+    else if (activeTab === 'admin_teacher_performance') setCurrentSection('teacher_performance');
     else if (activeTab === 'admin_teachers') setCurrentSection('teachers');
     else if (activeTab === 'admin_add_teacher') setCurrentSection('add_teacher');
   }, [activeTab]);
@@ -101,10 +121,12 @@ export const AdminDashboard: React.FC = () => {
   const loadData = async () => {
     setLoadingStats(true);
     setLoadingTeachers(true);
+    setLoadingPerformance(true);
     try {
-      const [statsRes, teachersRes] = await Promise.all([
+      const [statsRes, teachersRes, performanceRes] = await Promise.all([
         fetchAdminStatsFromSupabase(),
         fetchAdminTeachersFromSupabase(),
+        fetchTeacherReviewPerformanceFromSupabase(),
       ]);
 
       if (statsRes.success && statsRes.stats) {
@@ -114,11 +136,16 @@ export const AdminDashboard: React.FC = () => {
       if (teachersRes.success && teachersRes.teachers) {
         setTeachers(teachersRes.teachers);
       }
+      if (performanceRes.success && performanceRes.performanceItems) {
+        setPerformanceItems(performanceRes.performanceItems);
+        if (performanceRes.stats) setPerformanceStats(performanceRes.stats);
+      }
     } catch (err) {
       console.error('Error loading admin data directly from Supabase:', err);
     } finally {
       setLoadingStats(false);
       setLoadingTeachers(false);
+      setLoadingPerformance(false);
     }
   };
 
@@ -333,6 +360,30 @@ export const AdminDashboard: React.FC = () => {
           >
             <BarChart3 className="w-4 h-4" />
             <span>لوحة التحليلات والإحصائيات</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setCurrentSection('teacher_performance');
+              setActiveTab('admin_teacher_performance');
+            }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer whitespace-nowrap ${
+              currentSection === 'teacher_performance'
+                ? 'bg-[#006304] text-white shadow-md'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+            }`}
+          >
+            <ClipboardCheck className="w-4 h-4" />
+            <span>أداء المعلمين في المراجعة</span>
+            {performanceStats && performanceStats.delayedTeachersCount > 0 ? (
+              <span className="bg-red-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse">
+                {performanceStats.delayedTeachersCount} متأخر
+              </span>
+            ) : performanceStats && performanceStats.totalTeachersCount > 0 ? (
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                منتظم
+              </span>
+            ) : null}
           </button>
 
           <button
@@ -663,6 +714,389 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SECTION: TEACHER REVIEW PERFORMANCE */}
+        {currentSection === 'teacher_performance' && (
+          <div className="space-y-5">
+            {/* Header & Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 rounded-3xl border-2 border-gray-100 shadow-xs">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-heading font-black text-slate-900 text-base sm:text-lg flex items-center gap-2">
+                    <ClipboardCheck className="w-5 h-5 text-[#006304]" />
+                    <span>أداء المعلمين في مراجعة التسميع</span>
+                  </h2>
+                  <span className="bg-emerald-100 text-[#006304] border border-emerald-300 text-[11px] font-black px-2.5 py-0.5 rounded-md">
+                    كلا النوعين: تسجيلات ذاتية + تسميع الحلقة
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 font-medium mt-1">
+                  مراقبة دقيقة لكلا نوعي التسميع (التسجيلات الصوتية والتسميع المباشر)، مع تتبع سرعة المراجعة والتنبيه التلقائي للمهام المتأخرة لأكثر من 48 ساعة.
+                </p>
+              </div>
+              <button
+                onClick={() => loadData()}
+                disabled={loadingPerformance}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-bold text-gray-700 transition-colors cursor-pointer self-start sm:self-auto shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingPerformance ? 'animate-spin text-[#006304]' : ''}`} />
+                <span>تحديث البيانات</span>
+              </button>
+            </div>
+
+            {/* Top Statistics Cards (5 Cards) */}
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+              {/* Card 1: Total Approved Recordings */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border-2 border-gray-100 shadow-xs hover:border-[#006304]/30 transition-all">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-gray-500 font-bold">تسجيلات ذاتية معتمدة</span>
+                  <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                    <Mic className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-slate-900 font-num">
+                  {performanceStats?.totalApprovedRecordings ?? 0}
+                </div>
+                <p className="mt-2 text-[11px] text-emerald-700 font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>تم الاستماع لها واعتمادها</span>
+                </p>
+              </div>
+
+              {/* Card 2: Total Approved Halaqah */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border-2 border-gray-100 shadow-xs hover:border-[#006304]/30 transition-all">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-gray-500 font-bold">تسميع حلقة معتمد</span>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#006304] flex items-center justify-center shrink-0">
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl sm:text-3xl font-black text-slate-900 font-num">
+                  {performanceStats?.totalApprovedHalaqah ?? 0}
+                </div>
+                <p className="mt-2 text-[11px] text-emerald-700 font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>تم تسميعها وإجازتها بالحلقة</span>
+                </p>
+              </div>
+
+              {/* Card 3: Delayed Recordings (>48h) */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border-2 border-gray-100 shadow-xs hover:border-red-300 transition-all">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-gray-500 font-bold">تسجيلات متأخرة</span>
+                  <div className="w-8 h-8 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className={`text-2xl sm:text-3xl font-black font-num ${
+                  (performanceStats?.delayedRecordingsCount ?? 0) > 0 ? 'text-red-600' : 'text-slate-900'
+                }`}>
+                  {performanceStats?.delayedRecordingsCount ?? 0}
+                </div>
+                <p className="mt-2 text-[11px] text-red-700 font-bold flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                  <span>معلقة &gt; 48 ساعة</span>
+                </p>
+              </div>
+
+              {/* Card 4: Delayed Halaqah (>48h) */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border-2 border-gray-100 shadow-xs hover:border-amber-300 transition-all">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-gray-500 font-bold">تسميع حلقة متأخر</span>
+                  <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className={`text-2xl sm:text-3xl font-black font-num ${
+                  (performanceStats?.delayedHalaqahCount ?? 0) > 0 ? 'text-amber-600' : 'text-slate-900'
+                }`}>
+                  {performanceStats?.delayedHalaqahCount ?? 0}
+                </div>
+                <p className="mt-2 text-[11px] text-amber-700 font-bold flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span>معلقة &gt; 48 ساعة</span>
+                </p>
+              </div>
+
+              {/* Card 5: Delayed Teachers */}
+              <div className={`rounded-3xl p-4 sm:p-5 border-2 transition-all col-span-2 lg:col-span-1 shadow-xs ${
+                (performanceStats?.delayedTeachersCount ?? 0) > 0
+                  ? 'bg-red-50/50 border-red-200'
+                  : 'bg-white border-gray-100'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-gray-500 font-bold">معلمون متأخرون</span>
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                    (performanceStats?.delayedTeachersCount ?? 0) > 0
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-emerald-50 text-[#006304]'
+                  }`}>
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className={`text-2xl sm:text-3xl font-black font-num ${
+                  (performanceStats?.delayedTeachersCount ?? 0) > 0 ? 'text-red-600' : 'text-[#006304]'
+                }`}>
+                  {performanceStats?.delayedTeachersCount ?? 0}
+                </div>
+                <p className={`mt-2 text-[11px] font-bold flex items-center gap-1 ${
+                  (performanceStats?.delayedTeachersCount ?? 0) > 0 ? 'text-red-700' : 'text-emerald-700'
+                }`}>
+                  {(performanceStats?.delayedTeachersCount ?? 0) === 0 ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>جميع المعلمين منتظمون</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                      <span>معلم لديهم مهام &gt; 48 ساعة</span>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="bg-white rounded-3xl p-4 border-2 border-gray-100 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
+              <div className="relative w-full sm:w-80">
+                <Search className="w-4 h-4 text-gray-400 absolute right-3 top-3 pointer-events-none" />
+                <input
+                  type="text"
+                  value={performanceSearch}
+                  onChange={e => setPerformanceSearch(e.target.value)}
+                  placeholder="ابحث باسم المعلم أو الحلقة..."
+                  className="w-full pr-9 pl-3 py-2 text-xs font-bold rounded-xl border border-gray-200 focus:outline-hidden focus:border-[#006304]"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setPerformanceStatusFilter('all')}
+                  className={`flex-1 sm:flex-initial px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    performanceStatusFilter === 'all'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  الكل ({performanceItems.length})
+                </button>
+                <button
+                  onClick={() => setPerformanceStatusFilter('late')}
+                  className={`flex-1 sm:flex-initial px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1 ${
+                    performanceStatusFilter === 'late'
+                      ? 'bg-red-600 text-white shadow-xs'
+                      : 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200'
+                  }`}
+                >
+                  <span>المتأخرون فقط</span>
+                  <span className="font-num font-black">
+                    ({performanceItems.filter(i => i.isLate).length})
+                  </span>
+                </button>
+                <button
+                  onClick={() => setPerformanceStatusFilter('regular')}
+                  className={`flex-1 sm:flex-initial px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1 ${
+                    performanceStatusFilter === 'regular'
+                      ? 'bg-[#006304] text-white shadow-xs'
+                      : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                  }`}
+                >
+                  <span>المنتظمون</span>
+                  <span className="font-num font-black">
+                    ({performanceItems.filter(i => !i.isLate).length})
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Detailed Table */}
+            <div className="bg-white rounded-3xl border-2 border-gray-100 shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-black">
+                    <tr>
+                      <th className="py-3 px-4">اسم المعلم</th>
+                      <th className="py-3 px-3">اسم الحلقة</th>
+                      <th className="py-3 px-3 text-center bg-purple-50/50">تسجيلات ذاتية<br /><span className="text-[10px] font-normal text-gray-500">إجمالي</span></th>
+                      <th className="py-3 px-3 text-center bg-purple-50/50">تسجيلات ذاتية<br /><span className="text-[10px] font-normal text-gray-500">معتمدة</span></th>
+                      <th className="py-3 px-3 text-center bg-purple-50/50">تسجيلات ذاتية<br /><span className="text-[10px] font-normal text-gray-500">قيد الانتظار</span></th>
+                      <th className="py-3 px-3 text-center bg-emerald-50/50">تسميع الحلقة<br /><span className="text-[10px] font-normal text-gray-500">إجمالي</span></th>
+                      <th className="py-3 px-3 text-center bg-emerald-50/50">تسميع الحلقة<br /><span className="text-[10px] font-normal text-gray-500">معتمد</span></th>
+                      <th className="py-3 px-3 text-center bg-emerald-50/50">تسميع الحلقة<br /><span className="text-[10px] font-normal text-gray-500">قيد الانتظار</span></th>
+                      <th className="py-3 px-3 text-center">نسبة المراجعة</th>
+                      <th className="py-3 px-3 text-center">الحالة</th>
+                      <th className="py-3 px-4 text-center">التفاصيل</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {loadingPerformance ? (
+                      <tr>
+                        <td colSpan={11} className="py-12 text-center text-gray-400">
+                          <div className="flex flex-col items-center justify-center gap-2">
+                            <RefreshCw className="w-6 h-6 animate-spin text-[#006304]" />
+                            <span className="font-bold">جاري تحميل مؤشرات مراجعة المعلمين من Supabase...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : performanceItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="py-10 text-center text-gray-400">
+                          لا يوجد معلمون مسجلون في النظام حالياً
+                        </td>
+                      </tr>
+                    ) : (
+                      performanceItems
+                        .filter(item => {
+                          const matchesSearch =
+                            item.teacherName.toLowerCase().includes(performanceSearch.toLowerCase()) ||
+                            item.teacherEmail.toLowerCase().includes(performanceSearch.toLowerCase()) ||
+                            item.circleName.toLowerCase().includes(performanceSearch.toLowerCase());
+                          if (!matchesSearch) return false;
+                          if (performanceStatusFilter === 'late') return item.isLate;
+                          if (performanceStatusFilter === 'regular') return !item.isLate;
+                          return true;
+                        })
+                        .map(item => (
+                          <tr
+                            key={item.teacherId}
+                            onClick={() => {
+                              setSelectedTeacherModal(item);
+                              setModalActiveTab(item.pendingRecordings.length > 0 ? 'recordings' : item.pendingHalaqah.length > 0 ? 'halaqah' : 'approved');
+                            }}
+                            className="hover:bg-gray-50/80 transition-colors cursor-pointer group"
+                          >
+                            {/* Teacher Name & Info */}
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-xl">
+                                  {item.gender === 'female' ? '🧕' : '👳'}
+                                </span>
+                                <div>
+                                  <div className="font-bold text-slate-900 group-hover:text-[#006304] transition-colors">
+                                    {item.teacherName}
+                                  </div>
+                                  <div className="text-[10px] text-gray-400 font-mono">
+                                    {item.teacherEmail}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Circle Name */}
+                            <td className="py-3.5 px-3">
+                              <div className="flex items-center gap-1.5 font-bold text-slate-700">
+                                <BookOpen className="w-3.5 h-3.5 text-gray-400" />
+                                <span>{item.circleName}</span>
+                              </div>
+                              <div className="text-[10px] text-gray-400">
+                                {item.studentsCount} طالب
+                              </div>
+                            </td>
+
+                            {/* Recordings: Total */}
+                            <td className="py-3.5 px-3 text-center font-num font-bold text-slate-700 bg-purple-50/20">
+                              {item.recordingsTotal}
+                            </td>
+
+                            {/* Recordings: Approved */}
+                            <td className="py-3.5 px-3 text-center font-num font-bold text-emerald-700 bg-purple-50/20">
+                              {item.recordingsApproved}
+                            </td>
+
+                            {/* Recordings: Pending */}
+                            <td className="py-3.5 px-3 text-center bg-purple-50/20">
+                              <div className="font-num font-bold text-slate-800">
+                                {item.recordingsPending}
+                              </div>
+                              {item.recordingsLate > 0 && (
+                                <span className="inline-block text-[10px] font-black text-red-600 bg-red-50 px-1.5 py-0.2 rounded mt-0.5 border border-red-200">
+                                  {item.recordingsLate} متأخر
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Halaqah: Total */}
+                            <td className="py-3.5 px-3 text-center font-num font-bold text-slate-700 bg-emerald-50/20">
+                              {item.halaqahTotal}
+                            </td>
+
+                            {/* Halaqah: Approved */}
+                            <td className="py-3.5 px-3 text-center font-num font-bold text-emerald-700 bg-emerald-50/20">
+                              {item.halaqahApproved}
+                            </td>
+
+                            {/* Halaqah: Pending */}
+                            <td className="py-3.5 px-3 text-center bg-emerald-50/20">
+                              <div className="font-num font-bold text-slate-800">
+                                {item.halaqahPending}
+                              </div>
+                              {item.halaqahLate > 0 && (
+                                <span className="inline-block text-[10px] font-black text-red-600 bg-red-50 px-1.5 py-0.2 rounded mt-0.5 border border-red-200">
+                                  {item.halaqahLate} متأخر
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Review Rate */}
+                            <td className="py-3.5 px-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <div className="w-16 bg-gray-200 h-2 rounded-full overflow-hidden shrink-0">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      item.reviewRate >= 80
+                                        ? 'bg-[#006304]'
+                                        : item.reviewRate >= 50
+                                        ? 'bg-amber-500'
+                                        : 'bg-red-500'
+                                    }`}
+                                    style={{ width: `${item.reviewRate}%` }}
+                                  />
+                                </div>
+                                <span className="font-num font-black text-slate-800 text-[11px]">
+                                  {item.reviewRate}%
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Status */}
+                            <td className="py-3.5 px-3 text-center">
+                              {item.isLate ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-red-100 text-red-800 border border-red-300 shadow-2xs">
+                                  <AlertCircle className="w-3 h-3 text-red-600" />
+                                  <span>متأخر ({item.totalLate})</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>منتظم</span>
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Action */}
+                            <td className="py-3.5 px-4 text-center">
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setSelectedTeacherModal(item);
+                                  setModalActiveTab(item.pendingRecordings.length > 0 ? 'recordings' : item.pendingHalaqah.length > 0 ? 'halaqah' : 'approved');
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gray-100 hover:bg-[#006304] hover:text-white text-gray-700 text-xs font-bold transition-all cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>عرض التفاصيل</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -1044,6 +1478,353 @@ export const AdminDashboard: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* TEACHER REVIEW PERFORMANCE DETAIL MODAL */}
+      {selectedTeacherModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
+          onClick={() => setSelectedTeacherModal(null)}
+        >
+          <div
+            className="bg-white rounded-3xl p-5 sm:p-6 max-w-3xl w-full space-y-4 shadow-2xl border-2 border-gray-200 text-right animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-gray-100 pb-4">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">
+                  {selectedTeacherModal.gender === 'female' ? '🧕' : '👳'}
+                </span>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-heading font-black text-base sm:text-lg text-slate-900">
+                      تفاصيل أداء المراجعة: {selectedTeacherModal.teacherName}
+                    </h3>
+                    {selectedTeacherModal.isLate ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-red-100 text-red-800 border border-red-300">
+                        <AlertCircle className="w-3 h-3 text-red-600" />
+                        <span>متأخر ({selectedTeacherModal.totalLate})</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>منتظم</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 font-bold flex items-center gap-2 mt-1">
+                    <span>{selectedTeacherModal.circleName}</span>
+                    <span>•</span>
+                    <span className="font-mono text-gray-400">{selectedTeacherModal.teacherEmail}</span>
+                    <span>•</span>
+                    <span>{selectedTeacherModal.studentsCount} طالب مسجل</span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedTeacherModal(null)}
+                className="p-2 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 cursor-pointer transition-colors shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Performance Overview Banner */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-gradient-to-br from-gray-50 to-emerald-50/30 p-3.5 rounded-2xl border border-gray-200 text-xs">
+              <div className="bg-white p-2.5 rounded-xl border border-gray-100">
+                <span className="text-gray-500 block text-[10px]">معدل المراجعة العام</span>
+                <span className="font-num font-black text-base text-slate-900">
+                  {selectedTeacherModal.reviewRate}%
+                </span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">
+                  ({selectedTeacherModal.totalApproved} من {selectedTeacherModal.totalSubmissions})
+                </span>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-xl border border-gray-100">
+                <span className="text-gray-500 block text-[10px]">تسجيلات صوتية معلقة</span>
+                <span className={`font-num font-black text-base ${selectedTeacherModal.recordingsLate > 0 ? 'text-red-600' : 'text-purple-700'}`}>
+                  {selectedTeacherModal.recordingsPending}
+                </span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">
+                  ({selectedTeacherModal.recordingsLate} تجاوزت 48 ساعة)
+                </span>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-xl border border-gray-100">
+                <span className="text-gray-500 block text-[10px]">تسميع حلقة معلق</span>
+                <span className={`font-num font-black text-base ${selectedTeacherModal.halaqahLate > 0 ? 'text-amber-600' : 'text-[#006304]'}`}>
+                  {selectedTeacherModal.halaqahPending}
+                </span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">
+                  ({selectedTeacherModal.halaqahLate} تجاوزت 48 ساعة)
+                </span>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-xl border border-gray-100">
+                <span className="text-gray-500 block text-[10px]">إجمالي المهام المتأخرة</span>
+                <span className={`font-num font-black text-base ${selectedTeacherModal.totalLate > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                  {selectedTeacherModal.totalLate}
+                </span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">
+                  {selectedTeacherModal.totalLate > 0 ? 'تتطلب متابعة سريعة' : 'لا يوجد تأخير'}
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="flex items-center gap-2 border-b border-gray-200 pb-2">
+              <button
+                onClick={() => setModalActiveTab('recordings')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                  modalActiveTab === 'recordings'
+                    ? 'bg-purple-700 text-white shadow-xs'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>تسجيلات ذاتية معلقة</span>
+                <span className="font-num font-black text-[11px] px-1.5 py-0.2 rounded-full bg-white/20">
+                  {selectedTeacherModal.pendingRecordings.length}
+                </span>
+                {selectedTeacherModal.recordingsLate > 0 && (
+                  <span className="bg-red-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                    {selectedTeacherModal.recordingsLate} متأخر
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setModalActiveTab('halaqah')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                  modalActiveTab === 'halaqah'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>تسميعات حلقة معلقة</span>
+                <span className="font-num font-black text-[11px] px-1.5 py-0.2 rounded-full bg-white/20">
+                  {selectedTeacherModal.pendingHalaqah.length}
+                </span>
+                {selectedTeacherModal.halaqahLate > 0 && (
+                  <span className="bg-red-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                    {selectedTeacherModal.halaqahLate} متأخر
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setModalActiveTab('approved')}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                  modalActiveTab === 'approved'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>أرشيف المعتمد مؤخراً</span>
+                <span className="font-num font-black text-[11px] px-1.5 py-0.2 rounded-full bg-white/20">
+                  {selectedTeacherModal.recentApproved.length}
+                </span>
+              </button>
+            </div>
+
+            {/* Tab 1: Pending Recordings */}
+            {modalActiveTab === 'recordings' && (
+              <div className="space-y-3">
+                {selectedTeacherModal.pendingRecordings.length === 0 ? (
+                  <div className="p-8 text-center bg-purple-50/50 rounded-2xl border border-purple-200">
+                    <CheckCircle2 className="w-10 h-10 text-purple-600 mx-auto mb-2" />
+                    <p className="font-heading font-black text-sm text-purple-900">
+                      لا توجد تسجيلات صوتية ذاتية معلقة لهذا المعلم 🎉
+                    </p>
+                    <p className="text-xs text-purple-700 mt-1">
+                      قام المعلم بمراجعة واعتماد جميع التسجيلات الصوتية المرفوعة من طلابه بانتظام.
+                    </p>
+                  </div>
+                ) : (
+                  selectedTeacherModal.pendingRecordings.map(sub => (
+                    <div
+                      key={sub.id}
+                      className={`p-4 rounded-2xl border-2 transition-all space-y-2 ${
+                        sub.isLate
+                          ? 'bg-red-50/40 border-red-300'
+                          : 'bg-white border-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-7 h-7 rounded-full bg-purple-100 text-purple-700 font-black text-xs flex items-center justify-center font-heading shrink-0">
+                            {sub.studentName[0] || 'ط'}
+                          </span>
+                          <div>
+                            <span className="font-bold text-slate-900 text-xs block">
+                              {sub.studentName}
+                            </span>
+                            <span className="text-[11px] text-gray-500 font-bold block">
+                              {sub.weekTitle} • {sub.nodeTitle} ({sub.surahName})
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {sub.isLate ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-red-100 text-red-800 border border-red-300">
+                              <AlertCircle className="w-3 h-3 text-red-600" />
+                              <span>متأخرة (&gt; 48 ساعة)</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                              <Clock className="w-3 h-3 text-blue-600" />
+                              <span>قيد الانتظار</span>
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-500 font-mono font-bold bg-gray-100 px-2 py-0.5 rounded">
+                            {sub.elapsedArabic}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Audio Player if present */}
+                      {sub.audioUrl && (
+                        <div className="pt-2 border-t border-gray-100">
+                          <div className="flex items-center gap-2 mb-1 text-[11px] text-gray-500 font-bold">
+                            <Volume2 className="w-3.5 h-3.5 text-purple-600" />
+                            <span>التسجيل الصوتي المرفوع من الطالب:</span>
+                          </div>
+                          <audio
+                            controls
+                            src={sub.audioUrl}
+                            className="w-full h-8"
+                            preload="none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Tab 2: Pending Halaqah Recitations */}
+            {modalActiveTab === 'halaqah' && (
+              <div className="space-y-3">
+                {selectedTeacherModal.pendingHalaqah.length === 0 ? (
+                  <div className="p-8 text-center bg-emerald-50/50 rounded-2xl border border-emerald-200">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto mb-2" />
+                    <p className="font-heading font-black text-sm text-emerald-900">
+                      لا توجد طلبات تسميع مباشر معلقة في الحلقة 🎉
+                    </p>
+                    <p className="text-xs text-emerald-700 mt-1">
+                      تم تسميع وإجازة كافة الطلاب المسجلين في الحلقة دون أي طلبات معلقة.
+                    </p>
+                  </div>
+                ) : (
+                  selectedTeacherModal.pendingHalaqah.map(sub => (
+                    <div
+                      key={sub.id}
+                      className={`p-4 rounded-2xl border-2 transition-all space-y-2 ${
+                        sub.isLate
+                          ? 'bg-red-50/40 border-red-300'
+                          : 'bg-white border-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-7 h-7 rounded-full bg-emerald-100 text-[#006304] font-black text-xs flex items-center justify-center font-heading shrink-0">
+                            {sub.studentName[0] || 'ط'}
+                          </span>
+                          <div>
+                            <span className="font-bold text-slate-900 text-xs block">
+                              {sub.studentName}
+                            </span>
+                            <span className="text-[11px] text-gray-500 font-bold block">
+                              {sub.weekTitle} • {sub.nodeTitle} ({sub.surahName})
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {sub.isLate ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black bg-red-100 text-red-800 border border-red-300">
+                              <AlertCircle className="w-3 h-3 text-red-600" />
+                              <span>متأخرة (&gt; 48 ساعة)</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              <span>بانتظار التسميع في الحلقة</span>
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-500 font-mono font-bold bg-gray-100 px-2 py-0.5 rounded">
+                            {sub.elapsedArabic}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Tab 3: Recent Approved Archive */}
+            {modalActiveTab === 'approved' && (
+              <div className="space-y-3">
+                {selectedTeacherModal.recentApproved.length === 0 ? (
+                  <div className="p-8 text-center bg-gray-50 rounded-2xl border border-gray-200">
+                    <p className="font-bold text-xs text-gray-500">
+                      لا توجد تسميعات معتمدة مسجلة لهذا المعلم بعد
+                    </p>
+                  </div>
+                ) : (
+                  selectedTeacherModal.recentApproved.map(sub => (
+                    <div
+                      key={sub.id}
+                      className="p-3.5 bg-white rounded-2xl border border-gray-200 flex items-center justify-between flex-wrap gap-2"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <span className="font-bold text-xs text-slate-900 block">
+                            {sub.studentName} • {sub.surahName}
+                          </span>
+                          <span className="text-[11px] text-gray-500 font-bold block">
+                            {sub.weekTitle} • {sub.nodeTitle}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          sub.type === 'recording'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-emerald-100 text-[#006304]'
+                        }`}>
+                          {sub.type === 'recording' ? '🎙️ تسجيل ذاتي' : '🏛️ تسميع حلقة'}
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          {sub.reviewedAt ? new Date(sub.reviewedAt).toLocaleDateString('ar-EG') : 'معتمد'}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="pt-2 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => setSelectedTeacherModal(null)}
+                className="px-5 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-colors cursor-pointer"
+              >
+                إغلاق النافذة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
