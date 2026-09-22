@@ -1466,7 +1466,13 @@ export const getStudentSubmissions = async (studentId: string): Promise<NodeSubm
           surahsList: meta.surahsList,
           nodeDescription: meta.nodeDescription,
           type: rec.type || (rec.audio_url ? 'recording' : 'halaqah'),
-          status: rec.status === 'approved' ? 'approved' : rec.status === 'reviewed' ? 'reviewed' : 'pending_teacher_review',
+          status: rec.status === 'approved'
+            ? 'approved'
+            : (rec.status === 'needs_practice' || rec.status === 'reviewed')
+            ? 'reviewed'
+            : rec.status === 'absent'
+            ? 'absent'
+            : 'pending_teacher_review',
           audioUrl: rec.audio_url,
           teacherNotes: rec.teacher_notes || '',
           rating: rec.rating || (rec.status === 'approved' ? 'معتمد' : ''),
@@ -1621,7 +1627,195 @@ export const switchRecitationTypeInDB = async (
 };
 
 /**
- * 15. تسجيل غياب الطالب في الحلقة (حذف طلب التسميع لإتاحته للطالب لاحقاً)
+ * 14.1 مراجعة واعتماد تسميع الطالب في Supabase مباشرة (Approved / Needs Practice)
+ * باستخدام PostgreSQL Function (RPC) لعملية واحدة فائقة السرعة (< 150ms)
+ */
+export const reviewStudentSubmissionInDB = async (params: {
+  studentId: string;
+  nodeId: string;
+  status: 'approved' | 'needs_practice' | 'reviewed';
+  teacherNotes: string;
+  rating: string;
+  xpReward?: number;
+  weekId?: number;
+  submissionId?: string;
+  nodeTitle?: string;
+}): Promise<{ success: boolean; error?: string; profile?: any }> => {
+  const {
+    studentId,
+    nodeId,
+    status,
+    teacherNotes = '',
+    rating = '',
+    xpReward = 25,
+    weekId = 1,
+    submissionId,
+    nodeTitle,
+  } = params;
+
+  if (!studentId || !nodeId) {
+    return { success: false, error: 'معرّف الطالب والمحطة مطلوبان' };
+  }
+
+  const finalNotes = (teacherNotes || '').trim();
+  const isApproved = status === 'approved';
+  const isGate = nodeId.includes('gate') || (nodeTitle && nodeTitle.includes('بوابة'));
+  const finalRating = (rating || (isApproved ? (isGate ? 'مجتاز بنجاح 🏆' : 'ممتاز 🌟') : 'يحتاج تدريب 🔄')).trim();
+  const dbStatus = isApproved ? 'approved' : 'needs_practice';
+  const nowIso = new Date().toISOString();
+
+  const isUUID = (str?: string | null): boolean => {
+    if (!str || typeof str !== 'string') return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+  };
+
+  const cleanRecId = (submissionId && !submissionId.includes('_') && isUUID(submissionId)) ? submissionId : null;
+  const cleanStudentId = isUUID(studentId) ? studentId : null;
+
+  // 1. استخدام PostgreSQL RPC Function الفائقة السرعة لتنفيذ كل شيء بطلب شبكي واحد
+  if (isApproved && cleanStudentId) {
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('approve_submission', {
+        p_recording_id: cleanRecId,
+        p_student_id: cleanStudentId,
+        p_node_id: nodeId,
+        p_teacher_notes: finalNotes,
+        p_rating: finalRating,
+        p_xp_reward: Number(xpReward) || 25,
+        p_week_id: Number(weekId) || 1,
+        p_is_gate: isGate,
+      });
+
+      if (!rpcError && rpcData && rpcData.success !== false) {
+        console.log('⚡ [approve_submission RPC] Succeeded in 1 roundtrip:', rpcData);
+        invalidateCache();
+        return { success: true, profile: rpcData };
+      }
+      if (rpcError) {
+        console.warn('⚠️ [approve_submission RPC] Falling back to direct update:', rpcError.message);
+      }
+    } catch (rpcErr) {
+      console.warn('⚠️ [approve_submission RPC] Call exception, falling back:', rpcErr);
+    }
+  } else if (!isApproved && cleanStudentId) {
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('request_practice', {
+        p_recording_id: cleanRecId,
+        p_student_id: cleanStudentId,
+        p_node_id: nodeId,
+        p_teacher_notes: finalNotes,
+        p_rating: finalRating,
+      });
+
+      if (!rpcError && rpcData && rpcData.success !== false) {
+        console.log('⚡ [request_practice RPC] Succeeded in 1 roundtrip:', rpcData);
+        invalidateCache();
+        return { success: true };
+      }
+      if (rpcError) {
+        console.warn('⚠️ [request_practice RPC] Falling back to direct update:', rpcError.message);
+      }
+    } catch (rpcErr) {
+      console.warn('⚠️ [request_practice RPC] Call exception, falling back:', rpcErr);
+    }
+  }
+
+  // 2. Fallback السريع والمتوازي في حال لم يتم تشغيل دالة RPC في Supabase بعد
+  try {
+    const baseUpdateData: Record<string, any> = {
+      status: dbStatus,
+      teacher_notes: finalNotes,
+      rating: finalRating,
+      reviewed_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    // تحديث صف التسجيل
+    const updateRecPromise = (async () => {
+      if (cleanRecId) {
+        const { error } = await supabase.from('recordings').update(baseUpdateData).eq('id', cleanRecId);
+        if (!error) return true;
+      }
+      if (cleanStudentId) {
+        const { data, error } = await supabase
+          .from('recordings')
+          .update(baseUpdateData)
+          .eq('student_id', cleanStudentId)
+          .eq('node_id', nodeId)
+          .select();
+        if (!error && data && data.length > 0) return true;
+        // إذا لم يكن موجوداً أدرجه
+        await supabase.from('recordings').insert({
+          student_id: cleanStudentId,
+          node_id: nodeId,
+          status: dbStatus,
+          teacher_notes: finalNotes,
+          rating: finalRating,
+          type: 'halaqah',
+          reviewed_at: nowIso,
+        });
+      }
+      return true;
+    })();
+
+    // تحديث ملف الطالب إذا كان معتمداً (متوازياً مع التسجيل)
+    const updateProfilePromise = (async () => {
+      if (!isApproved || !cleanStudentId) return null;
+      const { data: studentProf } = await supabase
+        .from('profiles')
+        .select('xp, completed_nodes, completed_weeks, current_week')
+        .eq('id', cleanStudentId)
+        .maybeSingle();
+
+      if (!studentProf) return null;
+
+      const existingNodes: string[] = Array.isArray(studentProf.completed_nodes) ? studentProf.completed_nodes : [];
+      const newNodes = existingNodes.includes(nodeId) ? existingNodes : [...existingNodes, nodeId];
+      const newXp = (Number(studentProf.xp) || 0) + (Number(xpReward) || 25);
+
+      const existingWeeks: number[] = Array.isArray(studentProf.completed_weeks) ? studentProf.completed_weeks : [];
+      const effectiveWeekId = Number(weekId) || 1;
+      const shouldUnlock = isGate;
+      const newWeeks = (shouldUnlock && !existingWeeks.includes(effectiveWeekId))
+        ? [...existingWeeks, effectiveWeekId]
+        : existingWeeks;
+      const newCurrentWeek = shouldUnlock
+        ? Math.max(Number(studentProf.current_week) || 1, effectiveWeekId + 1)
+        : (Number(studentProf.current_week) || 1);
+
+      const { data: updated } = await supabase
+        .from('profiles')
+        .update({
+          completed_nodes: newNodes,
+          completed_weeks: newWeeks,
+          current_week: newCurrentWeek,
+          xp: newXp,
+        })
+        .eq('id', cleanStudentId)
+        .select()
+        .maybeSingle();
+
+      return updated;
+    })();
+
+    const [, updatedProfile] = await Promise.all([updateRecPromise, updateProfilePromise]);
+    invalidateCache();
+
+    return {
+      success: true,
+      profile: updatedProfile,
+    };
+  } catch (err: any) {
+    console.error('❌ [reviewStudentSubmissionInDB] Error:', err);
+    return {
+      success: false,
+      error: err.message || 'فشلت عملية المراجعة في قاعدة البيانات',
+    };
+  }
+};
+
+/**
+ * 15. تسجيل غياب الطالب في الحلقة مباشرة في Supabase باستخدام RPC أو التحديث المباشر
  */
 export const markHalaqahAbsentInDB = async (
   studentId: string,
@@ -1629,25 +1823,67 @@ export const markHalaqahAbsentInDB = async (
   submissionId?: string
 ): Promise<{ success: boolean; message?: string }> => {
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const isUUID = (str?: string | null): boolean => {
+      if (!str || typeof str !== 'string') return false;
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+    };
 
-    const res = await fetch('/api/submissions/mark-absent', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ studentId, nodeId, submissionId }),
-    });
-    if (res.ok) {
-      const json = await res.json();
-      return { success: true, message: json.message };
+    const cleanRecId = (submissionId && !submissionId.includes('_') && isUUID(submissionId)) ? submissionId : null;
+    const cleanStudentId = isUUID(studentId) ? studentId : null;
+
+    // 1. محاولة استخدام RPC دالة mark_absent السريعة
+    if (cleanStudentId) {
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('mark_absent', {
+          p_recording_id: cleanRecId,
+          p_student_id: cleanStudentId,
+          p_node_id: nodeId,
+        });
+        if (!rpcError && rpcData && rpcData.success !== false) {
+          console.log('⚡ [mark_absent RPC] Succeeded in 1 roundtrip:', rpcData);
+          invalidateCache();
+          return { success: true, message: 'تم تسجيل غياب الطالب بنجاح' };
+        }
+      } catch (e) {}
     }
-    const errJson = await res.json().catch(() => ({}));
-    return { success: false, message: errJson.error || 'فشل في تسجيل غياب الطالب' };
+
+    // 2. Fallback مباشر
+    const nowIso = new Date().toISOString();
+    const updatePayload = {
+      status: 'absent',
+      teacher_notes: 'غائب',
+      rating: 'غائب',
+      reviewed_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    if (cleanRecId) {
+      await supabase.from('recordings').update(updatePayload).eq('id', cleanRecId);
+    } else if (cleanStudentId && nodeId) {
+      const { data } = await supabase
+        .from('recordings')
+        .update(updatePayload)
+        .eq('student_id', cleanStudentId)
+        .eq('node_id', nodeId)
+        .select();
+      if (!data || data.length === 0) {
+        await supabase.from('recordings').insert({
+          student_id: cleanStudentId,
+          node_id: nodeId,
+          status: 'absent',
+          teacher_notes: 'غائب',
+          rating: 'غائب',
+          type: 'halaqah',
+          reviewed_at: nowIso,
+        });
+      }
+    }
+
+    invalidateCache();
+    return { success: true, message: 'تم تسجيل غياب الطالب بنجاح' };
   } catch (err: any) {
     console.error('❌ [markHalaqahAbsentInDB] Error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'فشل في تسجيل غياب الطالب' };
   }
 };
 

@@ -284,7 +284,6 @@ export const TeacherDashboard: React.FC = () => {
     defaultRating?: string
   ) => {
     const subKey = sub.id || `${sub.studentId}_${sub.nodeId}`;
-    setReviewingId(subKey);
     const isGate = sub.nodeId?.includes('gate') || sub.nodeTitle?.includes('بوابة');
     const teacherNotes = (notesState[subKey] !== undefined ? notesState[subKey] : (sub.teacherNotes || '')).trim();
     const rating = ratingState[subKey] || sub.rating || defaultRating || (
@@ -293,8 +292,23 @@ export const TeacherDashboard: React.FC = () => {
         : (status === 'approved' ? 'ممتاز 🌟' : 'يحتاج تدريب 🔄')
     );
     const xpReward = isGate ? (status === 'approved' ? 50 : 15) : (status === 'approved' ? 25 : 10);
+    const studentName = getStudentDisplayName(sub);
+
+    // 1. إغلاق النافذة وإظهار رسالة النجاح فوراً وبشكل تفاؤلي (Optimistic UI - Instant 0ms)
+    setReviewModalSubmission(null);
+    if (status === 'approved') {
+      const msg = isGate
+        ? `تم اعتماد اجتياز بوابة الأسبوع للطالب ${studentName} بنجاح، وفُتح له الأسبوع القادم (+50 XP)! 🏆`
+        : `تم اعتماد تسميع الطالب ${studentName} بنجاح وإضافة 25 نقطة لإنجازه (+25 XP) ✨`;
+      setActionSuccessMsg(msg);
+    } else {
+      setActionSuccessMsg(`تم إرسال الملاحظات وطلب إعادة التدريب للطالب ${studentName} بنجاح 🔄`);
+    }
+    setTimeout(() => setActionSuccessMsg(null), 4500);
+
+    // 2. تنفيذ الحفظ في Supabase بالخلفية عبر دالة RPC السريعة بدون إعادة جلب البيانات بالكامل
     try {
-      await reviewStudentSubmission(
+      const ok = await reviewStudentSubmission(
         sub.studentId,
         sub.nodeId,
         status,
@@ -304,52 +318,56 @@ export const TeacherDashboard: React.FC = () => {
         sub.weekId || 1,
         sub.id
       );
-      await fetchTeacherSubmissions();
-      setReviewModalSubmission(null);
-      if (status === 'approved') {
-        const studentName = getStudentDisplayName(sub);
-        const msg = isGate
-          ? `تم اعتماد اجتياز بوابة الأسبوع للطالب ${studentName} بنجاح، وفُتح له الأسبوع القادم (+50 XP)! 🏆`
-          : `تم اعتماد تسميع الطالب ${studentName} بنجاح وإضافة 25 نقطة لإنجازه`;
-        setActionSuccessMsg(msg);
-        setTimeout(() => setActionSuccessMsg(null), 4500);
+      if (!ok) {
+        setActionSuccessMsg(null);
+        alert('تعذر حفظ المراجعة في قاعدة البيانات، وتم التراجع عن التغيير. يرجى التحقق من اتصال الإنترنت.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error reviewing submission:', err);
-    } finally {
-      setReviewingId(null);
+      setActionSuccessMsg(null);
+      alert('حدث خطأ أثناء حفظ مراجعة التسميع: ' + (err?.message || 'خطأ غير متوقع'));
     }
   };
 
   const handleMarkAbsent = async (sub: NodeSubmission) => {
-    const subKey = sub.id || `${sub.studentId}_${sub.nodeId}`;
-    setReviewingId(subKey);
+    const studentName = getStudentDisplayName(sub);
+    // 1. إغلاق التأكيد وإظهار رسالة النجاح فوراً
+    setAbsentConfirmId(null);
+    setActionSuccessMsg(`تم تسجيل غياب الطالب ${studentName} بنجاح، ويمكنه التسميع لاحقاً`);
+    setTimeout(() => setActionSuccessMsg(null), 4000);
+
+    // 2. التنفيذ في قاعدة البيانات بالخلفية
     try {
       const res = await markStudentAbsent(sub.studentId, sub.nodeId, sub.id);
-      if (res?.success) {
-        await fetchTeacherSubmissions();
-        setAbsentConfirmId(null);
-        setActionSuccessMsg(`تم تسجيل غياب الطالب ${getStudentDisplayName(sub)} بنجاح، ويمكنه التسميع لاحقاً`);
-        setTimeout(() => setActionSuccessMsg(null), 4000);
-      } else {
-        alert(res?.message || 'حدث خطأ أثناء تسجيل الغياب');
+      if (!res?.success) {
+        setActionSuccessMsg(null);
+        alert(res?.message || 'حدث خطأ أثناء تسجيل الغياب في قاعدة البيانات');
       }
     } catch (err) {
       console.error('Error marking student absent:', err);
-    } finally {
-      setReviewingId(null);
+      setActionSuccessMsg(null);
+      alert('تعذر تسجيل غياب الطالب في قاعدة البيانات.');
     }
   };
 
   const handleApproveInHalaqah = async (sub: NodeSubmission) => {
     const subKey = sub.id || `${sub.studentId}_${sub.nodeId}`;
-    setReviewingId(subKey);
     const isGate = sub.nodeId?.includes('gate') || sub.nodeTitle?.includes('بوابة');
     const teacherNotes = (inHalaqahNotes[subKey] || '').trim();
     const rating = isGate ? 'مجتاز بنجاح 🏆' : 'ممتاز 🌟';
     const xpReward = isGate ? 50 : 25;
+    const studentName = getStudentDisplayName(sub);
+
+    // 1. إظهار رسالة الاعتماد فوراً
+    const msg = isGate
+      ? `تم اعتماد اجتياز بوابة الأسبوع للطالب ${studentName} بنجاح، وفُتح له الأسبوع القادم (+50 XP)! 🏆`
+      : `تم اعتماد تسميع الطالب ${studentName} بنجاح وإضافة 25 نقطة لإنجازه (+25 XP) ✨`;
+    setActionSuccessMsg(msg);
+    setTimeout(() => setActionSuccessMsg(null), 4500);
+
+    // 2. الحفظ المباشر بالخلفية بدون إعادة جلب بطيئة
     try {
-      await reviewStudentSubmission(
+      const ok = await reviewStudentSubmission(
         sub.studentId,
         sub.nodeId,
         'approved',
@@ -359,17 +377,14 @@ export const TeacherDashboard: React.FC = () => {
         sub.weekId || 1,
         sub.id
       );
-      await fetchTeacherSubmissions();
-      const studentName = getStudentDisplayName(sub);
-      const msg = isGate
-        ? `تم اعتماد اجتياز بوابة الأسبوع للطالب ${studentName} بنجاح، وفُتح له الأسبوع القادم (+50 XP)! 🏆`
-        : `تم اعتماد تسميع الطالب ${studentName} بنجاح وإضافة 25 نقطة لإنجازه`;
-      setActionSuccessMsg(msg);
-      setTimeout(() => setActionSuccessMsg(null), 4500);
-    } catch (err) {
+      if (!ok) {
+        setActionSuccessMsg(null);
+        alert('تعذر اعتماد التسميع في قاعدة البيانات، وتم التراجع عن العملية. يرجى التحقق من اتصال الإنترنت.');
+      }
+    } catch (err: any) {
       console.error('Error approving halaqah submission:', err);
-    } finally {
-      setReviewingId(null);
+      setActionSuccessMsg(null);
+      alert('حدث خطأ أثناء اعتماد تسميع الحلقة: ' + (err?.message || 'يرجى المحاولة مرة أخرى'));
     }
   };
 
@@ -380,11 +395,18 @@ export const TeacherDashboard: React.FC = () => {
       alert('يرجى كتابة ملاحظاتك وتوجيهاتك للطالب حتى يعرف ما يحتاج لمراجعته وتدريبه.');
       return;
     }
-    setReviewingId(subKey);
     const isGate = sub.nodeId?.includes('gate') || sub.nodeTitle?.includes('بوابة');
     const rating = isGate ? 'إعادة وتدريب 🔄' : 'يحتاج تدريب 🔄';
+    const studentName = getStudentDisplayName(sub);
+
+    // 1. إغلاق صندوق الملاحظات وإظهار النجاح فوراً
+    setOpenPracticeNoteId(null);
+    setActionSuccessMsg(`تم إرسال الملاحظات للطالب ${studentName} بنجاح لإعادة التدريب`);
+    setTimeout(() => setActionSuccessMsg(null), 4000);
+
+    // 2. الحفظ بالخلفية
     try {
-      await reviewStudentSubmission(
+      const ok = await reviewStudentSubmission(
         sub.studentId,
         sub.nodeId,
         'reviewed',
@@ -394,14 +416,14 @@ export const TeacherDashboard: React.FC = () => {
         sub.weekId || 1,
         sub.id
       );
-      await fetchTeacherSubmissions();
-      setOpenPracticeNoteId(null);
-      setActionSuccessMsg(`تم إرسال الملاحظات للطالب ${getStudentDisplayName(sub)} بنجاح لإعادة التدريب`);
-      setTimeout(() => setActionSuccessMsg(null), 4000);
-    } catch (err) {
+      if (!ok) {
+        setActionSuccessMsg(null);
+        alert('تعذر إرسال طلب إعادة التدريب في قاعدة البيانات، وتم التراجع عن التغيير.');
+      }
+    } catch (err: any) {
       console.error('Error requesting practice for halaqah submission:', err);
-    } finally {
-      setReviewingId(null);
+      setActionSuccessMsg(null);
+      alert('حدث خطأ أثناء إرسال طلب إعادة التدريب: ' + (err?.message || 'يرجى المحاولة مرة أخرى'));
     }
   };
 

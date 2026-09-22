@@ -38,7 +38,7 @@ export interface WeekRewardInfo {
   unlockedBadgeIds: string[];
 }
 
-export type TaskStatus = 'locked' | 'available' | 'completed' | 'pending_teacher_review' | 'approved' | 'reviewed';
+export type TaskStatus = 'locked' | 'available' | 'completed' | 'pending_teacher_review' | 'approved' | 'reviewed' | 'needs_practice' | 'absent' | 'pending';
 
 export interface NodeSubmission {
   id?: string;

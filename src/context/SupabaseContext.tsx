@@ -971,7 +971,13 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             nodeTitle: r.node_title || 'تسميع السور المقررة',
             type: r.type || (r.audio_url ? 'recording' : 'halaqah'),
             audioUrl: r.audio_url || '',
-            status: r.status === 'approved' ? 'approved' : r.status === 'reviewed' ? 'reviewed' : 'pending_teacher_review',
+            status: r.status === 'approved'
+              ? 'approved'
+              : (r.status === 'needs_practice' || r.status === 'reviewed')
+              ? 'reviewed'
+              : r.status === 'absent'
+              ? 'absent'
+              : 'pending_teacher_review',
             teacherNotes: r.teacher_notes || '',
             rating: r.rating || (r.status === 'approved' ? 'معتمد' : ''),
             submittedAt: r.created_at || new Date().toISOString(),
@@ -990,7 +996,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [profile?.id, user.id, user.role, session?.access_token]);
 
-  // Review submission method
+  // Review submission method directly via Supabase client with instant Optimistic UI & fast RPC
   const reviewStudentSubmission = async (
     studentId: string,
     nodeId: string,
@@ -1001,151 +1007,125 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     weekId = 1,
     submissionId?: string
   ): Promise<boolean> => {
+    const dbStatus = status === 'approved' ? 'approved' : status === 'needs_practice' ? 'needs_practice' : 'reviewed';
+    const nowIso = new Date().toISOString();
+
+    // 1. حفظ نسخة احتياطية من الحالة الحالية للتراجع في حال حدوث خطأ
+    const prevTeacherSubmissions = [...teacherSubmissions];
+    const prevCircleStudents = [...circleStudents];
+    const prevUser = { ...user };
+
+    // 2. تحديث تفاؤلي فوري للواجهة (Optimistic UI) بدون أي انتظار
+    setTeacherSubmissions(prev =>
+      prev.map(sub => {
+        const isMatch = (sub.id && submissionId && sub.id === submissionId) ||
+                        (sub.studentId === studentId && sub.nodeId === nodeId);
+        if (!isMatch) return sub;
+        return {
+          ...sub,
+          status: dbStatus,
+          teacherNotes,
+          rating,
+          reviewedAt: nowIso,
+        };
+      })
+    );
+
+    // 3. تحديث نقاط ومهام الطالب في الحلقة فوراً إذا كان اعتماداً
+    if (status === 'approved') {
+      const isGateNode = nodeId.includes('gate');
+      setCircleStudents(prev =>
+        prev.map(s => {
+          if (s.id === studentId) {
+            const existingNodes = s.completedNodes || [];
+            const newNodes = existingNodes.includes(nodeId) ? existingNodes : [...existingNodes, nodeId];
+            const existingWeeks = s.completedWeeks || [];
+            const newWeeks = isGateNode && weekId && !existingWeeks.includes(weekId) ? [...existingWeeks, weekId] : existingWeeks;
+            const newCurrentWeek = isGateNode && weekId ? Math.max(s.currentWeek || 1, weekId + 1) : (s.currentWeek || 1);
+            return {
+              ...s,
+              completedNodes: newNodes,
+              completedWeeks: newWeeks,
+              currentWeek: newCurrentWeek,
+              xp: (s.xp || 0) + (xpReward || 25),
+            };
+          }
+          return s;
+        })
+      );
+    }
+
+    // 4. تحديث حالة المستخدم الحالي إذا كان هو الطالب نفسه
+    if (user.id === studentId) {
+      setUser(prev => {
+        const prevSubs = prev.submissions || {};
+        const currentSub = prevSubs[nodeId] || { nodeId, weekId, studentId, type: 'recording' };
+        const existingNodes = prev.completedNodes || [];
+        const newNodes = status === 'approved' && !existingNodes.includes(nodeId)
+          ? [...existingNodes, nodeId]
+          : existingNodes;
+
+        const isGateNode = nodeId.includes('gate');
+        const existingWeeks = prev.completedWeeks || [];
+        const newWeeks = status === 'approved' && isGateNode && weekId && !existingWeeks.includes(weekId)
+          ? [...existingWeeks, weekId]
+          : existingWeeks;
+        const newCurrentWeek = status === 'approved' && isGateNode && weekId
+          ? Math.max(prev.currentWeek || 1, weekId + 1)
+          : (prev.currentWeek || 1);
+
+        return {
+          ...prev,
+          submissions: {
+            ...prevSubs,
+            [nodeId]: {
+              ...currentSub,
+              status: dbStatus,
+              teacherNotes,
+              rating,
+              reviewedAt: nowIso,
+            },
+          },
+          completedNodes: newNodes,
+          completedWeeks: newWeeks,
+          currentWeek: newCurrentWeek,
+          xp: status === 'approved' ? prev.xp + xpReward : prev.xp,
+        };
+      });
+    }
+
+    // 5. تنفيذ العملية في قاعدة البيانات باستخدام RPC بطلب شبكي واحد
     try {
-      console.log('📝 [SupabaseContext.reviewStudentSubmission] Sending review:', {
+      const { reviewStudentSubmissionInDB } = await import('../services/supabaseService');
+      const result = await reviewStudentSubmissionInDB({
         submissionId,
         studentId,
         nodeId,
         status,
-        rating,
         teacherNotes,
+        rating,
+        xpReward,
+        weekId,
       });
 
-      const sessionToken = session?.access_token || (await supabase.auth.getSession()).data.session?.access_token;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (sessionToken) {
-        headers['Authorization'] = `Bearer ${sessionToken}`;
+      if (!result.success) {
+        console.error('❌ [SupabaseContext.reviewStudentSubmission] DB review failed, rolling back:', result.error);
+        // استرجاع الحالة السابقة عند الفشل
+        setTeacherSubmissions(prevTeacherSubmissions);
+        setCircleStudents(prevCircleStudents);
+        if (user.id === studentId) setUser(prevUser);
+        return false;
       }
 
-      const res = await fetch('/api/submissions/review', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          submissionId,
-          studentId,
-          nodeId,
-          status,
-          teacherNotes,
-          rating,
-          xpReward,
-          weekId,
-        }),
-      });
-
-      // Also directly update Supabase recordings table as client-side fallback
-      try {
-        if (submissionId && !submissionId.includes('_')) {
-          await supabase
-            .from('recordings')
-            .update({
-              status: status === 'approved' ? 'approved' : 'reviewed',
-              teacher_notes: teacherNotes,
-              rating: rating || (status === 'approved' ? 'ممتاز' : 'يحتاج تدريب'),
-            })
-            .eq('id', submissionId);
-        }
-        await supabase
-          .from('recordings')
-          .update({
-            status: status === 'approved' ? 'approved' : 'reviewed',
-            teacher_notes: teacherNotes,
-            rating: rating || (status === 'approved' ? 'ممتاز' : 'يحتاج تدريب'),
-          })
-          .eq('student_id', studentId)
-          .eq('node_id', nodeId);
-      } catch (dbErr) {
-        console.warn('⚠️ [SupabaseContext] Direct recordings table update warning:', dbErr);
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          // Update local teacher submissions
-          setTeacherSubmissions(prev =>
-            prev.map(sub =>
-              (sub.id && submissionId && sub.id === submissionId) ||
-              (sub.studentId === studentId && sub.nodeId === nodeId)
-                ? {
-                    ...sub,
-                    status: status === 'approved' ? 'approved' : 'reviewed',
-                    teacherNotes,
-                    rating,
-                    reviewedAt: new Date().toISOString(),
-                  }
-                : sub
-            )
-          );
-
-          // Update active user state if the current logged-in user is this student
-          if (user.id === studentId) {
-            setUser(prev => {
-              const prevSubs = prev.submissions || {};
-              const currentSub = prevSubs[nodeId] || { nodeId, weekId, studentId, type: 'recording' };
-              const existingNodes = prev.completedNodes || [];
-              const newNodes = status === 'approved' && !existingNodes.includes(nodeId)
-                ? [...existingNodes, nodeId]
-                : existingNodes;
-
-              const isGateNode = nodeId.includes('gate');
-              const existingWeeks = prev.completedWeeks || [];
-              const newWeeks = status === 'approved' && isGateNode && weekId && !existingWeeks.includes(weekId)
-                ? [...existingWeeks, weekId]
-                : existingWeeks;
-              const newCurrentWeek = status === 'approved' && isGateNode && weekId
-                ? Math.max(prev.currentWeek || 1, weekId + 1)
-                : (prev.currentWeek || 1);
-
-              return {
-                ...prev,
-                submissions: {
-                  ...prevSubs,
-                  [nodeId]: {
-                    ...currentSub,
-                    status: status === 'approved' ? 'approved' : 'reviewed',
-                    teacherNotes,
-                    rating,
-                    reviewedAt: new Date().toISOString(),
-                  },
-                },
-                completedNodes: newNodes,
-                completedWeeks: newWeeks,
-                currentWeek: newCurrentWeek,
-                xp: status === 'approved' ? prev.xp + xpReward : prev.xp,
-              };
-            });
-          }
-
-          // Update student in circle list if approved
-          if (status === 'approved') {
-            const isGateNode = nodeId.includes('gate');
-            setCircleStudents(prev =>
-              prev.map(s => {
-                if (s.id === studentId) {
-                  const existingNodes = s.completedNodes || [];
-                  const newNodes = existingNodes.includes(nodeId) ? existingNodes : [...existingNodes, nodeId];
-                  const existingWeeks = s.completedWeeks || [];
-                  const newWeeks = isGateNode && weekId && !existingWeeks.includes(weekId) ? [...existingWeeks, weekId] : existingWeeks;
-                  const newCurrentWeek = isGateNode && weekId ? Math.max(s.currentWeek || 1, weekId + 1) : (s.currentWeek || 1);
-                  return {
-                    ...s,
-                    completedNodes: newNodes,
-                    completedWeeks: newWeeks,
-                    currentWeek: newCurrentWeek,
-                    xp: s.xp + xpReward,
-                  };
-                }
-                return s;
-              })
-            );
-          }
-
-          return true;
-        }
-      }
+      return true;
     } catch (err) {
-      console.error('❌ [SupabaseContext.reviewStudentSubmission] Error:', err);
+      console.error('❌ [SupabaseContext.reviewStudentSubmission] Error, rolling back:', err);
+      // استرجاع الحالة السابقة عند حدوث خطأ استثنائي
+      setTeacherSubmissions(prevTeacherSubmissions);
+      setCircleStudents(prevCircleStudents);
+      if (user.id === studentId) setUser(prevUser);
+      return false;
     }
-    return false;
   };
 
   // Update progress directly in Supabase DB
