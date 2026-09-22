@@ -117,7 +117,7 @@ export interface SupabaseContextType {
   markNotificationAsRead: (notificationId: string) => Promise<void>;
   markAllNotificationsAsRead: () => Promise<void>;
   clearAllNotifications: () => Promise<void>;
-  requestCircleTransfer: (targetCircleId: string, targetCircleName: string) => Promise<{ success: boolean; message: string }>;
+  requestCircleTransfer: (targetCircleId: string, targetCircleName: string, targetTeacherId?: string) => Promise<{ success: boolean; message: string }>;
   respondToCircleTransfer: (notificationId: string, action: 'accept' | 'reject') => Promise<{ success: boolean; message: string }>;
 }
 
@@ -926,17 +926,21 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [user?.id, session?.user?.id]);
 
-  const requestCircleTransfer = useCallback(async (targetCircleId: string, targetCircleName: string) => {
+  const requestCircleTransfer = useCallback(async (
+    targetCircleId: string,
+    targetCircleName: string,
+    targetTeacherId?: string
+  ) => {
     try {
       const { requestCircleTransferInDB } = await import('../services/supabaseService');
       const res = await requestCircleTransferInDB({
         studentId: user.id,
         studentName: user.displayName || user.name || 'طالب قرآن',
         currentCircleId: user.circleId || userCircle?.id || '',
-        currentCircleName: user.circleName || userCircle?.name || 'الحلقة الحالية',
+        currentCircleName: user.circleName || userCircle?.name || 'بدون حلقة',
         targetCircleId,
         targetCircleName,
-        teacherId: user.teacherId || userCircle?.teacherId,
+        targetTeacherId,
       });
       return res;
     } catch (err: any) {
@@ -980,6 +984,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const res = await respondToCircleTransferInDB({
         notificationId,
         action,
+        teacherId: user.id,
         teacherName: user.displayName || user.name || 'معلمك',
         studentId,
         studentName,

@@ -269,7 +269,11 @@ export const ProfilePage: React.FC = () => {
 
     setCircleActionLoading(true);
     try {
-      const res = await requestCircleTransfer(selectedCircle.id, selectedCircle.name);
+      const res = await requestCircleTransfer(
+        selectedCircle.id,
+        selectedCircle.name,
+        selectedCircle.teacherId
+      );
       setIsChangeCircleModalOpen(false);
       setCircleActionLoading(false);
       if (res.success) {
@@ -504,11 +508,11 @@ export const ProfilePage: React.FC = () => {
           <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-[#006304] flex items-start gap-2 animate-in fade-in slide-in-from-top-2 duration-200 shadow-2xs">
             <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
             <div className="space-y-0.5">
-              <p>{language === 'en' ? 'Circle change request sent to the teacher.' : 'تم إرسال طلب تغيير الحلقة إلى المعلم.'}</p>
+              <p>{language === 'en' ? 'Circle change request sent to the new circle teacher for approval.' : 'تم إرسال طلبك إلى معلم الحلقة الجديدة للموافقة.'}</p>
               <p className="text-[11px] font-medium text-emerald-800">
                 {language === 'en'
-                  ? 'You will be notified and your circle updated once approved.'
-                  : 'سيتم إعلامك وتحديث حلقتك فور اعتماد المعلم للطلب.'}
+                  ? 'You will be notified and your circle updated once the new teacher approves.'
+                  : 'سيتم إشعارك وتحديث حلقتك فور موافقة المعلم الجديد على طلبك.'}
               </p>
             </div>
           </div>

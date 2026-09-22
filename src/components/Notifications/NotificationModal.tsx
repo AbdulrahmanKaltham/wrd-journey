@@ -284,8 +284,30 @@ export const NotificationModal: React.FC = () => {
                         {notif.message}
                       </p>
 
+                      {/* Circle Transfer Detail Card */}
+                      {isTransferRequest && notif.data && (
+                        <div className="mt-2.5 p-2.5 rounded-lg bg-amber-50/90 border border-amber-200 text-xs space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-medium text-amber-800">الطالب:</span>
+                            <span className="font-bold text-slate-900">{notif.data.studentName || 'طالب قرآن'}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/60 text-[11px]">
+                            <span className="text-amber-800 font-medium">الانتقال:</span>
+                            <div className="flex items-center gap-1.5 font-bold">
+                              <span className="bg-white px-2 py-0.5 rounded text-slate-700 border border-amber-200/60">
+                                {notif.data.currentCircleName || 'بدون حلقة'}
+                              </span>
+                              <span className="text-amber-600">➔</span>
+                              <span className="bg-emerald-100 px-2 py-0.5 rounded text-emerald-900 border border-emerald-300">
+                                {notif.data.targetCircleName}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Extra Data Badges */}
-                      {notif.data && (
+                      {notif.data && !isTransferRequest && (
                         <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                           {notif.data.rating && (
                             <span className="bg-white/80 border border-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-bold">
@@ -326,7 +348,7 @@ export const NotificationModal: React.FC = () => {
                                   ) : (
                                     <Check className="w-3.5 h-3.5" />
                                   )}
-                                  <span>قبول النقل</span>
+                                  <span>قبول</span>
                                 </button>
                                 <button
                                   id={`reject-transfer-${notif.id}`}

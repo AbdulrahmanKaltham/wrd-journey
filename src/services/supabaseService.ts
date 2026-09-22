@@ -2884,7 +2884,10 @@ export const createNotificationInDB = async (params: {
   data?: any;
 }): Promise<{ success: boolean; notification?: AppNotification; error?: any }> => {
   const { userId, type, title, message, data = {} } = params;
-  if (!userId) return { success: false, error: 'User ID is required' };
+  if (!userId) {
+    console.error('❌ [createNotificationInDB] User ID is missing!');
+    return { success: false, error: 'User ID is required' };
+  }
 
   try {
     const payload = {
@@ -2896,6 +2899,8 @@ export const createNotificationInDB = async (params: {
       is_read: false,
     };
 
+    console.log('📤 [createNotificationInDB] Inserting into notifications:', payload);
+
     const { data: inserted, error } = await supabase
       .from('notifications')
       .insert(payload)
@@ -2903,23 +2908,8 @@ export const createNotificationInDB = async (params: {
       .maybeSingle();
 
     if (error) {
-      console.warn('⚠️ [createNotificationInDB] Supabase insert note:', error.message);
-      const fallbackNotif: AppNotification = {
-        id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        userId,
-        type,
-        title,
-        message,
-        data,
-        isRead: false,
-        createdAt: new Date().toISOString(),
-      };
-      if (typeof localStorage !== 'undefined') {
-        const key = `ward_notifications_${userId}`;
-        const existing = JSON.parse(localStorage.getItem(key) || '[]');
-        localStorage.setItem(key, JSON.stringify([fallbackNotif, ...existing]));
-      }
-      return { success: true, notification: fallbackNotif };
+      console.error('❌ [createNotificationInDB] Supabase notifications insert error:', error.message, error);
+      return { success: false, error: error.message };
     }
 
     const notif: AppNotification = {
@@ -2933,6 +2923,7 @@ export const createNotificationInDB = async (params: {
       createdAt: inserted.created_at,
     };
 
+    console.log('✅ [createNotificationInDB] Notification created successfully:', notif.id);
     return { success: true, notification: notif };
   } catch (err: any) {
     console.error('❌ [createNotificationInDB] Exception:', err);
@@ -3006,93 +2997,133 @@ export const deleteAllUserNotificationsInDB = async (userId: string): Promise<bo
 };
 
 /**
- * إرسال طلب تغيير الحلقة من الطالب إلى معلم الحلقة الحالية
+ * إرسال طلب تغيير الحلقة من الطالب إلى معلم الحلقة الجديدة للموافقة
  */
 export const requestCircleTransferInDB = async (params: {
   studentId: string;
   studentName: string;
-  currentCircleId: string;
-  currentCircleName: string;
+  currentCircleId?: string;
+  currentCircleName?: string;
   targetCircleId: string;
   targetCircleName: string;
-  teacherId?: string;
+  targetTeacherId?: string;
 }): Promise<{ success: boolean; message: string }> => {
   const {
     studentId,
     studentName,
-    currentCircleId,
-    currentCircleName,
+    currentCircleId = '',
+    currentCircleName = 'بدون حلقة',
     targetCircleId,
     targetCircleName,
   } = params;
 
-  let teacherId = params.teacherId;
+  if (!targetCircleId) {
+    return { success: false, message: 'يرجى تحديد الحلقة المستهدفة' };
+  }
 
-  // إذا لم يُحدد المعلم، محاولة استخراجه من بيانات الحلقة الحالية
-  if (!teacherId && currentCircleId) {
+  let newTeacherId = params.targetTeacherId;
+
+  // 1. استخراج معرف معلم الحلقة الجديدة المستهدفة من جدول circles
+  if (!newTeacherId && targetCircleId) {
     try {
-      const { data: circle } = await supabase
+      const { data: targetCircle, error } = await supabase
         .from('circles')
         .select('teacher_id')
-        .eq('id', currentCircleId)
+        .eq('id', targetCircleId)
         .maybeSingle();
-      if (circle?.teacher_id) {
-        teacherId = circle.teacher_id;
+
+      if (targetCircle?.teacher_id) {
+        newTeacherId = targetCircle.teacher_id;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('⚠️ [requestCircleTransferInDB] Error querying target circle teacher:', e);
+    }
   }
 
-  // إذا لم يتوفر بعد، جلبه من ملف الطالب
-  if (!teacherId && studentId) {
+  // 2. إذا لم يتوفر بعد، البحث عن أي معلم مرتبط بالحلقة من profiles
+  if (!newTeacherId && targetCircleId) {
     try {
-      const { data: prof } = await supabase
+      const { data: teacherProf } = await supabase
         .from('profiles')
-        .select('teacher_id')
-        .eq('id', studentId)
+        .select('id')
+        .eq('role', 'teacher')
+        .eq('circle_id', targetCircleId)
         .maybeSingle();
-      if (prof?.teacher_id) {
-        teacherId = prof.teacher_id;
+
+      if (teacherProf?.id) {
+        newTeacherId = teacherProf.id;
       }
     } catch (e) {}
   }
 
-  if (!teacherId) {
+  // 3. إجراء احتياطي: في حال لم يُحدد بعد، البحث عن أي حساب معلم في النظام
+  if (!newTeacherId) {
+    try {
+      const { data: anyTeacher } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'teacher')
+        .limit(1)
+        .maybeSingle();
+
+      if (anyTeacher?.id) {
+        newTeacherId = anyTeacher.id;
+      }
+    } catch (e) {}
+  }
+
+  if (!newTeacherId) {
+    console.error('❌ [requestCircleTransferInDB] Target circle has no teacher associated:', targetCircleId);
     return {
       success: false,
-      message: 'لم يتم العثور على معلم حلقتك الحالية لإرسال الطلب إليه. يرجى التواصل مع إدارة المجمع.',
+      message: 'لم يتم العثور على معلم مرتبط بهذه الحلقة لإرسال الطلب إليه. يرجى مراجعة إدارة المجمع.',
     };
   }
 
-  const title = 'طلب نقل من الحلقة';
-  const message = `الطالب (${studentName || 'طالب'}) يطلب الانتقال من (${currentCircleName || 'الحلقة الحالية'}) إلى (${targetCircleName || 'حلقة جديدة'})`;
+  const title = 'طلب نقل طالب جديد';
+  const cleanCurrentCircle = currentCircleName || 'بدون حلقة';
+  const cleanStudentName = studentName || 'طالب قرآن';
+  const message = `الطالب (${cleanStudentName}) يطلب الانتقال من (${cleanCurrentCircle}) إلى (${targetCircleName})`;
+
   const notifData = {
     studentId,
-    studentName: studentName || 'طالب قرآن',
-    currentCircleId,
-    currentCircleName: currentCircleName || 'الحلقة الحالية',
+    studentName: cleanStudentName,
+    currentCircleId: currentCircleId || null,
+    currentCircleName: cleanCurrentCircle,
     targetCircleId,
-    targetCircleName: targetCircleName || 'حلقة جديدة',
+    targetCircleName,
     status: 'pending',
   };
 
-  const res = await createNotificationInDB({
-    userId: teacherId,
+  const insertPayload = {
+    user_id: newTeacherId,
     type: 'circle_transfer_request',
     title,
     message,
     data: notifData,
-  });
+    is_read: false,
+  };
 
-  if (!res.success) {
+  console.log('📤 [requestCircleTransferInDB] Inserting transfer notification for new teacher:', insertPayload);
+
+  const { data: inserted, error } = await supabase
+    .from('notifications')
+    .insert(insertPayload)
+    .select()
+    .maybeSingle();
+
+  if (error) {
+    console.error('❌ [requestCircleTransferInDB] Supabase notifications insert error:', error);
     return {
       success: false,
-      message: 'تعذر إرسال الطلب، يرجى التحقق من اتصال الإنترنت.',
+      message: `فشل تسجيل الطلب في قاعدة البيانات: ${error.message}`,
     };
   }
 
+  console.log('✅ [requestCircleTransferInDB] Notification row created successfully:', inserted);
   return {
     success: true,
-    message: 'تم إرسال طلبك إلى معلمك للموافقة بنجاح.',
+    message: 'تم إرسال طلبك إلى معلم الحلقة الجديدة للموافقة.',
   };
 };
 
@@ -3102,6 +3133,7 @@ export const requestCircleTransferInDB = async (params: {
 export const respondToCircleTransferInDB = async (params: {
   notificationId: string;
   action: 'accept' | 'reject';
+  teacherId?: string;
   teacherName: string;
   studentId: string;
   studentName?: string;
@@ -3113,6 +3145,7 @@ export const respondToCircleTransferInDB = async (params: {
   const {
     notificationId,
     action,
+    teacherId,
     teacherName,
     studentId,
     targetCircleId,
@@ -3127,7 +3160,7 @@ export const respondToCircleTransferInDB = async (params: {
   try {
     if (action === 'accept') {
       // 1. جلب معرف معلم الحلقة الجديدة وإضافة الطالب لمصفوفة student_ids
-      let targetTeacherId: string | null = null;
+      let targetTeacherId: string | null = teacherId || null;
       try {
         const { data: targetCircle } = await supabase
           .from('circles')
@@ -3135,7 +3168,9 @@ export const respondToCircleTransferInDB = async (params: {
           .eq('id', targetCircleId)
           .maybeSingle();
 
-        targetTeacherId = targetCircle?.teacher_id || null;
+        if (targetCircle?.teacher_id && !targetTeacherId) {
+          targetTeacherId = targetCircle.teacher_id;
+        }
 
         if (targetCircle) {
           const existingStudents: string[] = Array.isArray(targetCircle.student_ids) ? targetCircle.student_ids : [];
@@ -3150,7 +3185,7 @@ export const respondToCircleTransferInDB = async (params: {
         console.warn('⚠️ [respondToCircleTransferInDB] Error updating target circle:', err);
       }
 
-      // 2. إزالة الطالب من قائمة طلاب الحلقة السابقة
+      // 2. إزالة الطالب من قائمة طلاب الحلقة السابقة إن وُجدت
       if (currentCircleId) {
         try {
           const { data: oldCircle } = await supabase
@@ -3172,7 +3207,7 @@ export const respondToCircleTransferInDB = async (params: {
         }
       }
 
-      // 3. تحديث ملف الطالب في profiles
+      // 3. تحديث ملف الطالب في profiles (circle_id و teacher_id)
       const updatePayload: Record<string, any> = {
         circle_id: targetCircleId,
       };
@@ -3189,28 +3224,42 @@ export const respondToCircleTransferInDB = async (params: {
         userId: studentId,
         type: 'circle_transfer_accepted',
         title: 'تم قبول طلب النقل',
-        message: `وافق المعلم (${teacherName}) على نقل طلبك إلى (${targetCircleName}). مرحباً بك!`,
+        message: `وافق المعلم (${teacherName}) على نقلك إلى (${targetCircleName}). مرحباً بك!`,
         data: {
           studentId,
           targetCircleId,
           targetCircleName,
           teacherName,
+          status: 'accepted',
         },
       });
 
-      // 5. تحديث الإشعار الأصلي لدى المعلم ليصبح مقروءاً ومكتملاً
+      // 5. تحديث الإشعار الأصلي لدى المعلم ليصبح مقروءاً ومكتملاً (is_read = true, data.status = 'accepted')
       if (notificationId && !notificationId.startsWith('local_')) {
-        await supabase
-          .from('notifications')
-          .update({
-            is_read: true,
-            data: {
-              ...params,
-              status: 'accepted',
-              processedAt: new Date().toISOString(),
-            },
-          })
-          .eq('id', notificationId);
+        try {
+          const { data: cur } = await supabase
+            .from('notifications')
+            .select('data')
+            .eq('id', notificationId)
+            .maybeSingle();
+
+          const mergedData = {
+            ...(cur?.data || {}),
+            ...params,
+            status: 'accepted',
+            processedAt: new Date().toISOString(),
+          };
+
+          await supabase
+            .from('notifications')
+            .update({
+              is_read: true,
+              data: mergedData,
+            })
+            .eq('id', notificationId);
+        } catch (e) {
+          console.warn('⚠️ [respondToCircleTransferInDB] Error updating original notification:', e);
+        }
       }
 
       invalidateCache();
@@ -3222,28 +3271,42 @@ export const respondToCircleTransferInDB = async (params: {
         userId: studentId,
         type: 'circle_transfer_rejected',
         title: 'تم رفض طلب النقل',
-        message: `رفض المعلم (${teacherName}) طلبك لنقل إلى (${targetCircleName}). يمكنك البقاء في حلقتك الحالية أو اختيار حلقة أخرى.`,
+        message: `رفض المعلم (${teacherName}) طلب نقلك إلى (${targetCircleName}).`,
         data: {
           studentId,
           targetCircleId,
           targetCircleName,
           teacherName,
+          status: 'rejected',
         },
       });
 
-      // 2. تحديث الإشعار الأصلي لدى المعلم
+      // 2. تحديث الإشعار الأصلي لدى المعلم ليصبح مقروءاً ومرفوضاً
       if (notificationId && !notificationId.startsWith('local_')) {
-        await supabase
-          .from('notifications')
-          .update({
-            is_read: true,
-            data: {
-              ...params,
-              status: 'rejected',
-              processedAt: new Date().toISOString(),
-            },
-          })
-          .eq('id', notificationId);
+        try {
+          const { data: cur } = await supabase
+            .from('notifications')
+            .select('data')
+            .eq('id', notificationId)
+            .maybeSingle();
+
+          const mergedData = {
+            ...(cur?.data || {}),
+            ...params,
+            status: 'rejected',
+            processedAt: new Date().toISOString(),
+          };
+
+          await supabase
+            .from('notifications')
+            .update({
+              is_read: true,
+              data: mergedData,
+            })
+            .eq('id', notificationId);
+        } catch (e) {
+          console.warn('⚠️ [respondToCircleTransferInDB] Error updating original notification:', e);
+        }
       }
 
       invalidateCache();
