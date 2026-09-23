@@ -15,6 +15,7 @@ import {
   Calendar,
   UserCheck,
   Loader2,
+  ArrowLeft,
 } from 'lucide-react';
 import { useSupabase } from '../../context/SupabaseContext';
 import { AppNotification } from '../../types';
@@ -240,6 +241,9 @@ export const NotificationModal: React.FC = () => {
           ) : (
             filteredNotifications.map((notif: AppNotification) => {
               const isTransferRequest = notif.type === 'circle_transfer_request';
+              const isTransferAccepted = notif.type === 'circle_transfer_accepted';
+              const isTransferRejected = notif.type === 'circle_transfer_rejected';
+              const isTransferRelated = isTransferRequest || isTransferAccepted || isTransferRejected;
               const transferStatus = notif.data?.status || 'pending';
               const isTeacher = user.role === 'teacher';
 
@@ -284,30 +288,84 @@ export const NotificationModal: React.FC = () => {
                         {notif.message}
                       </p>
 
-                      {/* Circle Transfer Detail Card */}
-                      {isTransferRequest && notif.data && (
-                        <div className="mt-2.5 p-2.5 rounded-lg bg-amber-50/90 border border-amber-200 text-xs space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-medium text-amber-800">الطالب:</span>
-                            <span className="font-bold text-slate-900">{notif.data.studentName || 'طالب قرآن'}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-amber-200/60 text-[11px]">
-                            <span className="text-amber-800 font-medium">الانتقال:</span>
-                            <div className="flex items-center gap-1.5 font-bold">
-                              <span className="bg-white px-2 py-0.5 rounded text-slate-700 border border-amber-200/60">
-                                {notif.data.currentCircleName || 'بدون حلقة'}
-                              </span>
-                              <span className="text-amber-600">➔</span>
-                              <span className="bg-emerald-100 px-2 py-0.5 rounded text-emerald-900 border border-emerald-300">
-                                {notif.data.targetCircleName}
-                              </span>
+                      {/* Circle Transfer Detail Card (Request, Accepted, Rejected) */}
+                      {isTransferRelated && notif.data && (notif.data.targetCircleName || notif.data.currentCircleName) && (
+                        <div className={`mt-2.5 p-2.5 rounded-lg border text-xs space-y-2 ${
+                          isTransferAccepted
+                            ? 'bg-emerald-50/90 border-emerald-200'
+                            : isTransferRejected
+                            ? 'bg-rose-50/90 border-rose-200'
+                            : 'bg-amber-50/90 border-amber-200'
+                        }`}>
+                          {/* اسم الطالب للمعلم أو اسم المعلم للطالب */}
+                          {isTransferRequest ? (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-medium text-amber-800 shrink-0">الطالب:</span>
+                              <span className="font-bold text-slate-900 truncate">{notif.data.studentName || 'طالب قرآن'}</span>
+                            </div>
+                          ) : notif.data.teacherName ? (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`text-[11px] font-medium shrink-0 ${
+                                isTransferAccepted ? 'text-emerald-800' : 'text-rose-800'
+                              }`}>المعلم:</span>
+                              <span className="font-bold text-slate-900 truncate">{notif.data.teacherName}</span>
+                            </div>
+                          ) : null}
+
+                          {/* مسار النقل الموحد: من الحلقة الحالية ← إلى الحلقة الجديدة */}
+                          <div className={`flex items-center justify-between gap-2 pt-1.5 border-t text-[11px] ${
+                            isTransferAccepted
+                              ? 'border-emerald-200/60'
+                              : isTransferRejected
+                              ? 'border-rose-200/60'
+                              : 'border-amber-200/60'
+                          }`}>
+                            <span className={`font-medium shrink-0 ${
+                              isTransferAccepted
+                                ? 'text-emerald-800'
+                                : isTransferRejected
+                                ? 'text-rose-800'
+                                : 'text-amber-800'
+                            }`}>مسار النقل:</span>
+                            
+                            <div className="flex items-center gap-1.5 font-bold flex-wrap justify-end">
+                              {/* من: الحلقة الحالية */}
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-slate-500 font-normal">من:</span>
+                                <span className="bg-white px-2 py-0.5 rounded text-slate-700 border border-slate-200 shadow-2xs">
+                                  {notif.data.currentCircleName || 'بدون حلقة'}
+                                </span>
+                              </div>
+
+                              {/* سهم يشير باتجاه اليسار (الاتجاه الصحيح في القراءة العربية من اليمين لليسار) */}
+                              <ArrowLeft className={`w-3.5 h-3.5 shrink-0 ${
+                                isTransferAccepted
+                                  ? 'text-emerald-600'
+                                  : isTransferRejected
+                                  ? 'text-rose-600'
+                                  : 'text-amber-600'
+                              }`} />
+
+                              {/* إلى: الحلقة المستهدفة */}
+                              <div className="flex items-center gap-1">
+                                <span className={`text-[10px] font-normal ${
+                                  isTransferRejected ? 'text-rose-700' : 'text-emerald-700'
+                                }`}>إلى:</span>
+                                <span className={`px-2 py-0.5 rounded border shadow-2xs ${
+                                  isTransferRejected
+                                    ? 'bg-rose-100 text-rose-900 border-rose-300'
+                                    : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                }`}>
+                                  {notif.data.targetCircleName}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
                       )}
 
                       {/* Extra Data Badges */}
-                      {notif.data && !isTransferRequest && (
+                      {notif.data && !isTransferRelated && (
                         <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
                           {notif.data.rating && (
                             <span className="bg-white/80 border border-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-bold">

@@ -3218,9 +3218,11 @@ export const respondToCircleTransferInDB = async (params: {
     teacherId,
     teacherName,
     studentId,
+    studentName,
     targetCircleId,
     targetCircleName,
     currentCircleId,
+    currentCircleName,
   } = params;
 
   if (!studentId || !targetCircleId) {
@@ -3290,13 +3292,17 @@ export const respondToCircleTransferInDB = async (params: {
         .eq('id', studentId);
 
       // 4. إرسال إشعار فوري للطالب بقبول النقل
+      const cleanCurrentCircle = currentCircleName || 'حلقتك السابقة';
       await createNotificationInDB({
         userId: studentId,
         type: 'circle_transfer_accepted',
-        title: 'تم قبول طلب النقل',
-        message: `وافق المعلم (${teacherName}) على نقلك إلى (${targetCircleName}). مرحباً بك!`,
+        title: 'تم قبول طلب النقل ✨',
+        message: `وافق المعلم (${teacherName}) على نقلك من (${cleanCurrentCircle}) إلى (${targetCircleName}). مرحباً بك!`,
         data: {
           studentId,
+          studentName: studentName || 'طالب قرآن',
+          currentCircleId: currentCircleId || null,
+          currentCircleName: cleanCurrentCircle,
           targetCircleId,
           targetCircleName,
           teacherName,
@@ -3337,13 +3343,17 @@ export const respondToCircleTransferInDB = async (params: {
     } else {
       // الرفض
       // 1. إنشاء إشعار للطالب برفض النقل
+      const cleanCurrentCircle = currentCircleName || 'حلقتك الحالية';
       await createNotificationInDB({
         userId: studentId,
         type: 'circle_transfer_rejected',
         title: 'تم رفض طلب النقل',
-        message: `رفض المعلم (${teacherName}) طلب نقلك إلى (${targetCircleName}).`,
+        message: `اعتذر المعلم (${teacherName}) عن نقل طلبك من (${cleanCurrentCircle}) إلى (${targetCircleName}).`,
         data: {
           studentId,
+          studentName: studentName || 'طالب قرآن',
+          currentCircleId: currentCircleId || null,
+          currentCircleName: cleanCurrentCircle,
           targetCircleId,
           targetCircleName,
           teacherName,
