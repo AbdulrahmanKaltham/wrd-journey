@@ -118,7 +118,10 @@ export const ProfilePage: React.FC = () => {
       setPlayingAudioUrl(null);
     } else {
       profileAudioRef.current.src = url;
-      profileAudioRef.current.play().catch(e => console.warn('Audio play error:', e));
+      profileAudioRef.current.play().catch(e => {
+        console.warn('Audio play error:', e);
+        setPlayingAudioUrl(null);
+      });
       setPlayingAudioUrl(url);
     }
   };
@@ -772,7 +775,10 @@ export const ProfilePage: React.FC = () => {
       {/* Hidden audio element for Profile playback */}
       <audio
         ref={profileAudioRef}
+        preload="metadata"
+        playsInline
         onEnded={() => setPlayingAudioUrl(null)}
+        onError={() => setPlayingAudioUrl(null)}
         className="hidden"
       />
 

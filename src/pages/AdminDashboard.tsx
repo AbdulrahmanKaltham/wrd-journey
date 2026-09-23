@@ -1695,10 +1695,12 @@ export const AdminDashboard: React.FC = () => {
                           </div>
                           <audio
                             controls
-                            src={sub.audioUrl}
+                            preload="metadata"
+                            playsInline
                             className="w-full h-8"
-                            preload="none"
-                          />
+                          >
+                            <source src={sub.audioUrl} />
+                          </audio>
                         </div>
                       )}
                     </div>

@@ -325,7 +325,13 @@ export const TeacherStudentsPage: React.FC = () => {
                         </span>
                       </div>
                       {sub.audioUrl && (
-                        <audio controls src={sub.audioUrl} className="w-full h-7 mt-1 rounded">
+                        <audio
+                          controls
+                          preload="metadata"
+                          playsInline
+                          className="w-full h-7 mt-1 rounded"
+                        >
+                          <source src={sub.audioUrl} />
                           المتصفح لا يدعم تشغيل الصوت
                         </audio>
                       )}

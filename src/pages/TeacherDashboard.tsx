@@ -1626,10 +1626,11 @@ export const TeacherDashboard: React.FC = () => {
                   </p>
                   <audio
                     controls
-                    src={sub.audioUrl}
-                    className="w-full h-10 rounded-lg"
                     preload="metadata"
+                    playsInline
+                    className="w-full h-10 rounded-lg"
                   >
+                    <source src={sub.audioUrl} />
                     متصفحك لا يدعم تشغيل هذا الملف الصوتي.
                   </audio>
                 </div>
@@ -1856,7 +1857,13 @@ export const TeacherDashboard: React.FC = () => {
                       )}
 
                       {sub.audioUrl && (
-                        <audio controls src={sub.audioUrl} className="w-full h-8 mt-1 rounded">
+                        <audio
+                          controls
+                          preload="metadata"
+                          playsInline
+                          className="w-full h-8 mt-1 rounded"
+                        >
+                          <source src={sub.audioUrl} />
                           المتصفح لا يدعم تشغيل الصوت
                         </audio>
                       )}

@@ -95,6 +95,7 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
   const [micPermissionError, setMicPermissionError] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingMimeTypeRef = useRef<string>('audio/webm;codecs=opus');
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
@@ -164,8 +165,46 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
     audioChunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+
+      // اكتشاف الجهاز ونظام التشغيل واختيار صيغة الصوت المناسبة
+      const isIOS = typeof navigator !== 'undefined' && (
+        /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+      );
+
+      let mimeType = 'audio/webm;codecs=opus'; // الافتراضي للحواسيب وChrome
+
+      if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
+        if (isIOS) {
+          // iOS Safari يدعم audio/mp4 فقط بشكل رئيسي
+          if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
+          } else if (MediaRecorder.isTypeSupported('audio/mpeg')) {
+            mimeType = 'audio/mpeg';
+          }
+        } else if (!MediaRecorder.isTypeSupported(mimeType)) {
+          // Android قديم أو متصفحات أخرى
+          if (MediaRecorder.isTypeSupported('audio/webm')) {
+            mimeType = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
+          }
+        }
+      }
+
+      recordingMimeTypeRef.current = mimeType;
+
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
+      } catch (recErr) {
+        console.warn('MediaRecorder with specified mimeType failed, falling back:', recErr);
+        mediaRecorder = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = mediaRecorder;
+      if (mediaRecorder.mimeType) {
+        recordingMimeTypeRef.current = mediaRecorder.mimeType;
+      }
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -174,7 +213,8 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+        const finalType = recordingMimeTypeRef.current || mediaRecorder.mimeType || mimeType;
+        const audioBlob = new Blob(audioChunksRef.current, { type: finalType });
         setRecordedBlob(audioBlob);
         const audioUrl = URL.createObjectURL(audioBlob);
         setRecordedAudioUrl(audioUrl);
@@ -205,8 +245,14 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
       audioPlayerRef.current.pause();
       setIsPlayingRecorded(false);
     } else {
-      audioPlayerRef.current.play();
-      setIsPlayingRecorded(true);
+      audioPlayerRef.current.play()
+        .then(() => {
+          setIsPlayingRecorded(true);
+        })
+        .catch((err) => {
+          console.warn('Audio play failed:', err);
+          setIsPlayingRecorded(false);
+        });
     }
   };
 
@@ -746,9 +792,14 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
                           <audio
                             ref={audioPlayerRef}
                             src={audioSrc}
+                            preload="metadata"
+                            playsInline
                             onEnded={() => setIsPlayingRecorded(false)}
+                            onError={() => setIsPlayingRecorded(false)}
                             className="hidden"
-                          />
+                          >
+                            <source src={audioSrc} />
+                          </audio>
                         </div>
                       )}
 
@@ -834,9 +885,14 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
                           <audio
                             ref={audioPlayerRef}
                             src={audioSrc}
+                            preload="metadata"
+                            playsInline
                             onEnded={() => setIsPlayingRecorded(false)}
+                            onError={() => setIsPlayingRecorded(false)}
                             className="hidden"
-                          />
+                          >
+                            <source src={audioSrc} />
+                          </audio>
                         </div>
                       )}
 
@@ -962,9 +1018,14 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
                           <audio
                             ref={audioPlayerRef}
                             src={audioSrc}
+                            preload="metadata"
+                            playsInline
                             onEnded={() => setIsPlayingRecorded(false)}
+                            onError={() => setIsPlayingRecorded(false)}
                             className="hidden"
-                          />
+                          >
+                            <source src={audioSrc} />
+                          </audio>
                         </div>
                       )}
 
@@ -1335,9 +1396,14 @@ export const LessonPlayer: React.FC<LessonPlayerProps> = ({ node, week, onClose 
                             <audio
                               ref={audioPlayerRef}
                               src={recordedAudioUrl}
+                              preload="metadata"
+                              playsInline
                               onEnded={() => setIsPlayingRecorded(false)}
+                              onError={() => setIsPlayingRecorded(false)}
                               className="hidden"
-                            />
+                            >
+                              <source src={recordedAudioUrl} />
+                            </audio>
                           </div>
                         )}
 
